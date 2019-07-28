@@ -33,7 +33,12 @@ type Game struct {
 	differences  []boardDifference
 
 	currentColor int
-	favourableLegalActions []int
+
+	/**
+		an action index (actionIdx) is an index to the favourableLegalActions slice
+		an action (action) is a possible value of that slice
+	*/
+	favourableLegalActions []int // ordered ascendingly
 	lastPass	 bool
 }
 
