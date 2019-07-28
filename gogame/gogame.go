@@ -141,7 +141,7 @@ func (game *Game) StepLegal(lAction int) {
 	log.Debugf("Changed game:\n%+v", game)
 }
 
-func (game *Game) Outcome() float32 {
+func (game *Game) Score() float32 {
 	// count black and white stones
 	whiteScore, blackScore := float32(0.0), float32(0.0)
 	for _, color := range game.board {
@@ -231,6 +231,17 @@ func (game *Game) Outcome() float32 {
 		log.Panicf("Current color is invalid %d", game.currentColor)
 		return float32(0.0) // required because the compiler treats log.Panicf() and panic() differently
 	}
+}
+
+func (game *Game) Outcome() float32 {
+	score := game.Score()
+	if score > 0.0 {
+		return float32(1.0)
+	} else if score < 0.0 {
+		return float32(-1.0)
+	}
+	log.Panicf("Outcome is draw")
+	return 0.0 // necessary for some reason
 }
 
 func (game *Game) Observation() [][][]float32 {
