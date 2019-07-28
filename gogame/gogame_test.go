@@ -14,7 +14,7 @@ func replayGame(filename string) {
 	fmt.Printf("%+v", game)
 	fmt.Printf("%+v\n", game.Observation())
 	for _, lAction := range legalActions {
-		game.StepLegal(lAction)
+		game.Step(lAction)
 		fmt.Printf("%+v", game)
 		fmt.Printf("%+v\n", game.Observation())
 	}
@@ -51,7 +51,7 @@ func TestGameCopy(t *testing.T) {
 	game = copy
 
 	for _, lAction := range legalActions {
-		game.StepLegal(lAction)
+		game.Step(lAction)
 		copy = game.Copy()
 		if &copy == &game {
 			t.Errorf("Copy has same address as the original\n")
