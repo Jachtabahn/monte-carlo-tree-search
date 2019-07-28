@@ -56,22 +56,20 @@ func New() *Game {
 	}
 
 	game := &Game{board, differences, BLACK, favourableLegalActions, false}
-	log.Debugf("Created new game:\n%+v", game)
 	return game
 }
 
 func (game *Game) Step(action int) {
 	diff := boardDifference{add: make(map[int]int), rem: UNDEF}
-	if lAction != PASS {
-		if game.board[lAction] != EMPTY {
-			log.Panicf("Called StepLegal() with lAction %d which is not empty of color %d", lAction, game.board[lAction])
+	if action != PASS {
+		if game.board[action] != EMPTY {
+			log.Panicf("Called Step() with action %d which is not empty of color %d", action, game.board[action])
 		}
-		log.Debugf("Taking action %d with color %d", lAction, game.currentColor)
-		game.board[lAction] = game.currentColor
+		game.board[action] = game.currentColor
 
 		// possibly remove stones of the other color
 		otherColor := other(game.currentColor)
-		neighbours := adjacentPositions(lAction)
+		neighbours := adjacentPositions(action)
 		for _, neigh := range neighbours {
 			if game.board[neigh] == otherColor {
 				captured := game.capturedStones(neigh)
@@ -86,18 +84,18 @@ func (game *Game) Step(action int) {
 		}
 
 		// possibly remove my own stones
-		captured := game.capturedStones(lAction)
+		captured := game.capturedStones(action)
 		for cap := range captured {
 			// don't add the new suicidal stone to the previous position because it wasn't there
-			if cap != lAction {
+			if cap != action {
 				diff.add[cap] = game.currentColor
 			}
 			delete(game.board, cap)
 		}
 
 		// if my new stone is still on the board, remember to remove it to get to the previous position
-		if game.board[lAction] == game.currentColor {
-			diff.rem = lAction
+		if game.board[action] == game.currentColor {
+			diff.rem = action
 		}
 	}
 
@@ -113,7 +111,7 @@ func (game *Game) Step(action int) {
 
 	// take every empty intersection as a legal action to simplify computation
 	game.favourableLegalActions = []int{}
-	if !(lAction == PASS && game.lastPass) {
+	if !(action == PASS && game.lastPass) {
 		boardsize := config.Int["boardsize"]
 		boardLength := boardsize * boardsize
 		for action := 0; action < boardLength; action++ {
@@ -124,13 +122,11 @@ func (game *Game) Step(action int) {
 		game.favourableLegalActions = append(game.favourableLegalActions, PASS)
 	}
 
-	if lAction == PASS {
+	if action == PASS {
 		game.lastPass = true
 	} else {
 		game.lastPass = false
 	}
-
-	log.Debugf("Changed game:\n%+v", game)
 }
 
 func (game *Game) Score() float32 {
@@ -161,7 +157,6 @@ func (game *Game) Score() float32 {
 
 	// go through each unknown position and build its induced connected graph consisting only of empty fields
 	for unknownPos := range unknownTerritory {
-		log.Debugf("Popping unknown field %d", unknownPos)
 
 		// this map contains the "outer shell" of the territory we are currently exploring
 		newTerritory := make(map[int]struct{}, 1)
@@ -172,7 +167,6 @@ func (game *Game) Score() float32 {
 		for len(newTerritory) > 0 {
 			for pos := range newTerritory {
 				count++
-				log.Debugf("Popping new field %d", pos)
 				delete(newTerritory, pos)
 				delete(unknownTerritory, pos)
 
@@ -186,10 +180,8 @@ func (game *Game) Score() float32 {
 						}
 					case BLACK:
 						blackTerritory = true
-						log.Debugf("The position %d is adjacent to black %d", pos, neigh)
 					case WHITE:
 						whiteTerritory = true
-						log.Debugf("The position %d is adjacent to white %d", pos, neigh)
 					}
 				}
 			}
@@ -208,10 +200,9 @@ func (game *Game) Score() float32 {
 		}
 	}
 
-	log.Debugf("Total black score is %.1f", blackScore)
-	log.Debugf("Total white score before komi is %.1f", whiteScore)
 	komi := config.Float["komi"]
 	whiteScore += komi
+	log.Debugf("Total black score is %.1f", blackScore)
 	log.Debugf("Total white score after komi is %.1f", whiteScore)
 
 	switch game.currentColor {
@@ -293,8 +284,8 @@ func (game *Game) Copy() (gameCopy *Game) {
 	gameCopy.currentColor = game.currentColor
 
 	gameCopy.favourableLegalActions = make([]int, len(game.favourableLegalActions))
-	for a, lAction := range game.favourableLegalActions {
-		gameCopy.favourableLegalActions[a] = lAction
+	for a, action := range game.favourableLegalActions {
+		gameCopy.favourableLegalActions[a] = action
 	}
 
 	gameCopy.lastPass = game.lastPass
