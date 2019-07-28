@@ -367,6 +367,11 @@ func (game *Game) Finished() bool {
 	return len(game.favourableLegalActions) == 0
 }
 
+// introduce new game-specific knowledge into the configuration
+func ExtendConfig() {
+	config.Int["num_actions"] = config.Int["boardsize"] * config.Int["boardsize"] + 1
+}
+
 func other(color int) int {
 	switch color {
 	case BLACK:
