@@ -61,14 +61,6 @@ func New() *Game {
 }
 
 func (game *Game) Step(action int) {
-	if action >= len(game.favourableLegalActions) {
-		log.Panicf("Called Step() with invalid index %d, having only %d legal actions", action, len(game.favourableLegalActions))
-	}
-	lAction := game.favourableLegalActions[action]
-	game.StepLegal(lAction)
-}
-
-func (game *Game) StepLegal(lAction int) {
 	diff := boardDifference{add: make(map[int]int), rem: UNDEF}
 	if lAction != PASS {
 		if game.board[lAction] != EMPTY {
