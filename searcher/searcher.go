@@ -1,276 +1,368 @@
-package main
+package searcher
 
 import (
-    "time"
     "math"
-    "github.com/Habimm/monte-carlo-tree-search/gorules"
-    tf "github.com/tensorflow/tensorflow/tensorflow/go"
+    "time"
+    "fmt"
+    "math/rand"
+    "github.com/Habimm/monte-carlo-tree-search/gogame"
+    "github.com/Habimm/monte-carlo-tree-search/predictor"
+    "github.com/Habimm/monte-carlo-tree-search/config"
     "github.com/op/go-logging"
-    "os"
 )
 
-var log = logging.MustGetLogger("searcher")
-
-func trace(s string) string {
-    log.Debugf("Enter %s()\n", s)
-    return s
-}
-
-func un(s string) {
-    log.Debugf("Leave %s()\n", s)
-}
-
-type PredictionRequest struct {
-    observation     [][][]float32
-    resultChan      chan Prediction
-}
+var (
+    log = logging.MustGetLogger("searcher")
+)
 
 type Node struct {
-    state           gorules.State
+    game           *gogame.Game
     values          []float32
     counts          []int
     totalCount      int
-    policy          []float32
-    parent          *Node
-    parentAction    int
+    legalPolicy     []float32
     children        []*Node
 }
 
-func NewNode(predictChan chan PredictionRequest) (newNode *Node) {
-    defer un(trace("NewNode"))
-    newState := gorules.New()
-    newNode, _ = constructNewNode(newState, nil, -1, predictChan)
+func NewNode(predictChan chan predictor.Request) (newNode *Node) {
+    newGame := gogame.New()
+    newNode, _ = constructNewNode(newGame, predictChan)
+    log.Infof("Constructed new root node")
+    log.Debugf("%v", newNode)
     return
 }
 
-func (node *Node) NewNode(action int, predictChan chan PredictionRequest) (newNode *Node, value float32) {
-    newState := node.state.Step(action)
-    return constructNewNode(newState, node, action, predictChan)
-}
-
-func (node *Node) Outcome() float32 {
-    return node.state.Outcome()
-}
-
-func constructNewNode(state gorules.State, parentNode *Node, parentAction int, predictChan chan PredictionRequest) (newNode *Node, value float32) {
-    defer un(trace("constructNewNode"))
-    var policy []float32
-    if state.Final() {
-        value = state.Outcome()
-    } else {
-        prediction := RequestPrediction(state.Observation(), predictChan)
-        policy, value = prediction.policy, prediction.value
-    }
-    numLegalActions := len(state.LegalActions())
-    newNode = &Node{
-        state: state,
-        values: make([]float32, numLegalActions),
-        counts: make([]int, numLegalActions),
-        totalCount: 1,
-        policy: policy,
-        parent: parentNode,
-        parentAction: parentAction,
-        children: make([]*Node, numLegalActions)}
+func (node *Node) AddChild(actionIdx int, predictChan chan predictor.Request) (newNode *Node, value float32) {
+    newGame := node.game.Copy()
+    legalActions := newGame.FavourableLegalActions()
+    log.Debugf("Stepping with the %dth out of %d legal actions", actionIdx, len(legalActions))
+    newGame.Step(legalActions[actionIdx])
+    newNode, value = constructNewNode(newGame, predictChan)
+    log.Infof("Added new child node for player %d with value %.4f", newGame.Color(), value)
+    log.Debugf("%v", newNode)
     return
 }
 
-func (node *Node) Final() bool {
-    return node.state.Final()
+func (node *Node) Update(actionIdx int, value float32) {
+    node.counts[actionIdx]++
+    node.totalCount++
+    node.values[actionIdx] += (value - node.values[actionIdx]) / float32(node.counts[actionIdx])
 }
 
-func (node *Node) Update(action int, value float32) {
-    node.counts[action] ++
-    node.totalCount     ++
-    node.values[action] += (value - node.values[action]) / float32(node.counts[action])
+func (node *Node) Score(actionIdx int, parentCount int) float32 {
+    return node.values[actionIdx] +
+        config.PolicyScoreFactor * node.legalPolicy[actionIdx] *
+        float32(math.Sqrt(float64(parentCount))) / float32(1 + node.counts[actionIdx])
 }
 
-func (node *Node) Select(cPuct float32) (maxAction int) {
-    numLegalActions := len(node.state.LegalActions())
-    maxAction = -1
-    maxScore := float32(math.Inf(-1))
-    for action := 0; action < numLegalActions; action++ {
-        score := node.values[action] + cPuct * node.policy[action] * float32(math.Sqrt(float64(node.totalCount))) / float32(1 + node.counts[action])
+func (node *Node) Select(parentCount int) (maxActionIdx int) {
+    maxScore := node.Score(0, parentCount)
+    for actionIdx := 1; actionIdx < len(node.values); actionIdx++ {
+        score := node.Score(actionIdx, parentCount)
         if score > maxScore {
-            maxAction = action
+            maxActionIdx = actionIdx
             maxScore = score
         }
     }
-    if maxAction == -1 {
-        log.Panicf("There is no maximal action")
+    return
+}
+
+// the returned string never ends in a newline
+func (node *Node) String() (nice string) {
+    nice += fmt.Sprintf("%+v\n", *node) // dereference to avoid recursion
+    nice += node.game.String()
+    legalActions := node.FavourableLegalActions()
+    if len(legalActions) > 0 {
+        nice += "Counts:\n"
+        nice += statsString(node.counts, legalActions)+"\n"
+        nice += "Values:\n"
+        nice += statsString(node.values, legalActions)+"\n"
+        nice += "Policy:\n"
+        nice += statsString(node.legalPolicy, legalActions)
     }
     return
 }
 
-type Prediction struct {
-    policy  []float32
-    value   float32
+func (node *Node) Outcome() float32 {
+    return node.game.Outcome()
 }
 
-func RequestPrediction(observation [][][]float32, predictChan chan PredictionRequest) (prediction Prediction) {
-    request := PredictionRequest{observation, make(chan Prediction)}
-    predictChan <- request
-    prediction = <-request.resultChan
+func (node *Node) Color() int {
+    return node.game.Color()
+}
+
+func (node *Node) Finished() bool {
+    return node.game.Finished()
+}
+
+func (node *Node) FavourableLegalActions() []int {
+    return node.game.FavourableLegalActions()
+}
+
+func (node *Node) Observation() [][][]float32 {
+    return node.game.Observation()
+}
+
+// the returned string never ends in a newline
+func statsString(stats interface{}, legalActions []int) (nice string) {
+    // compute the maximum number of characters per item in stats to use as width to make everything look lean
+    maxAction := -1
+    maxVal := float32(math.Inf(-1))
+    width := 0
+    for actionIdx, action := range legalActions {
+        switch casted := stats.(type) {
+        case []int:
+            str := fmt.Sprintf("%d", casted[actionIdx])
+            if len(str) > width {
+                width = len(str)
+            }
+            if float32(casted[actionIdx]) > maxVal {
+                maxVal = float32(casted[actionIdx])
+                maxAction = action
+            }
+        case []float32:
+            str := fmt.Sprintf("%.4f", casted[actionIdx])
+            if len(str) > width {
+                width = len(str)
+            }
+            if casted[actionIdx] > maxVal {
+                maxVal = casted[actionIdx]
+                maxAction = action
+            }
+        }
+    }
+    width++
+
+    // the length of legalActions is used as a pointer to the next legal action we expect to encounter when
+    // we scan through all actions from left to right
+    boardsize := config.Int["boardsize"]
+    numActions := boardsize * boardsize + 1
+    legalActions = legalActions[:1]
+    for action, column := 0, 0; action < numActions; action++ {
+        if action == legalActions[len(legalActions)-1] {
+            switch casted := stats.(type) {
+            case []int:
+                widthFormat := fmt.Sprintf("%%%dd", width)
+                nice += fmt.Sprintf(widthFormat, casted[len(legalActions)-1])
+            case []float32:
+                widthFormat := fmt.Sprintf("%%%d.4f", width)
+                nice += fmt.Sprintf(widthFormat, casted[len(legalActions)-1])
+            }
+            if len(legalActions) < cap(legalActions) {
+                legalActions = legalActions[:len(legalActions)+1]
+            }
+        } else {
+            widthFormat := fmt.Sprintf("%%%ds", width)
+            nice += fmt.Sprintf(widthFormat, "-")
+        }
+
+        if column == boardsize-1 {
+            column = 0
+            if action == maxAction {
+                nice += "*"
+            }
+            nice += "\n"
+        } else {
+            column++
+            if action < numActions-1 {
+                if action == maxAction {
+                    nice += "*"
+                } else {
+                    nice += " "
+                }
+            }
+        }
+    }
+    return
+}
+
+func constructNewNode(game *gogame.Game, predictChan chan predictor.Request) (newNode *Node, value float32) {
+    var legalPolicy []float32
+    legalActions := game.FavourableLegalActions()
+    if len(legalActions) == 0 {
+        value = game.Outcome()
+    } else {
+        request := predictor.Request{game.Observation(), make(chan predictor.Response)}
+        predictChan<- request
+        prediction := <-request.ResultChan
+
+        value = prediction.Value
+
+        // normalize the legalPolicy logits of legal actions
+        legalPolicy = make([]float32, len(legalActions))
+        sum := float32(0.0)
+        for actionIdx, action := range legalActions {
+            legalPolicy[actionIdx] = float32(math.Exp(float64(prediction.Policy[action])))
+            sum += legalPolicy[actionIdx]
+        }
+        for actionIdx := range legalPolicy {
+            legalPolicy[actionIdx] /= sum
+        }
+    }
+    newNode = &Node{
+        game: game,
+        values: make([]float32, len(legalActions)),
+        counts: make([]int, len(legalActions)),
+        totalCount: 1,
+        legalPolicy: legalPolicy,
+        children: make([]*Node, len(legalActions))}
     return
 }
 
 type Searcher struct {
     root            *Node
-    predictChan     chan PredictionRequest
-    cPuct           float32
+    predictChan     chan predictor.Request
+    nsims           int
+    rootCount       int
+    done            chan int
+}
+
+func NewSearcher(predictChan chan predictor.Request) *Searcher {
+    searcher := &Searcher{
+        predictChan: predictChan,
+        nsims: config.Int["nsims"],
+        done: make(chan int)}
+    return searcher
 }
 
 func (searcher *Searcher) Reset() {
-    defer un(trace("Reset"))
+    log.Debugf("Resetting the game tree")
     searcher.root = NewNode(searcher.predictChan)
+    searcher.rootCount = 1
 }
 
-func NewSearcher() (searcher Searcher) {
-    searcher.predictChan = make(chan PredictionRequest)
-    searcher.cPuct = 2.0
+func (searcher *Searcher) Search() {
+    predict_batch_size := config.Int["predict_batch_size"]
+    start := time.Now()
+    log.Infof("Starting simulations")
+    for i := 0; i < predict_batch_size; i++ {
+        go searcher.simulate()
+    }
+    for i := 0; i < predict_batch_size; i++ {
+        <-searcher.done
+    }
+    t := time.Now()
+    elapsed := t.Sub(start)
+    log.Infof("Performed %d simulations in %v", searcher.nsims, elapsed)
+}
+
+func (searcher *Searcher) Exploit() (actionIdx int, policy []float32) {
+    actionIdx = -1
+    maxCount := -1
+    for a, count := range searcher.root.counts {
+        if count > maxCount {
+            maxCount = count
+            actionIdx = a
+        }
+    }
+
+    policy = make([]float32, config.Int["num_actions"])
+    legalActions := searcher.root.FavourableLegalActions()
+    policy[legalActions[actionIdx]] = float32(1.0)
     return
 }
 
-var sem = make(chan int)
-func (searcher *Searcher) Simulate() {
-    for {
+func (searcher *Searcher) Explore() (actionIdx int, policy []float32) {
+    policy = make([]float32, config.Int["num_actions"])
+    sum := 0
+    for _, count := range searcher.root.counts {
+        sum += count
+    }
+    if sum == 0 {
+        log.Panicf("Called Explore() without prior doing any simulations")
+    }
+
+    // the following creates the policy from normalizing the visit counts
+    // and at the same time samples an action index from that policy
+    actionIdx = -1
+    accumulated := float32(0.0)
+    r := 1.0 - rand.Float32() // r is the minimum probability mass we want to gather
+    legalActions := searcher.root.FavourableLegalActions()
+    for a, action := range legalActions {
+        policy[action] = float32(searcher.root.counts[a]) / float32(sum)
+
+        if accumulated < r {
+            actionIdx++
+            accumulated += policy[action]
+        }
+    }
+    log.Debugf("Chosen action index %d out of %d legal actions", actionIdx, len(legalActions))
+    return
+}
+
+func (searcher *Searcher) Step(actionIdx int) {
+    if logging.GetLevel("searcher") >= logging.DEBUG {
+        legalActions := searcher.root.FavourableLegalActions()
+        log.Debugf("Taking move %d", legalActions[actionIdx])
+    }
+
+    if searcher.root.children[actionIdx] == nil {
+        searcher.root.children[actionIdx], _ = searcher.root.AddChild(actionIdx, searcher.predictChan)
+    }
+    searcher.root = searcher.root.children[actionIdx]
+}
+
+func (searcher *Searcher) Observation() [][][]float32 {
+    return searcher.root.Observation()
+}
+
+func (searcher *Searcher) Outcome() float32 {
+    return searcher.root.Outcome()
+}
+
+func (searcher *Searcher) Finished() bool {
+    return searcher.root.Finished()
+}
+
+func (searcher *Searcher) Color() int {
+    return searcher.root.Color()
+}
+
+func ExtendConfig() {
+    gogame.ExtendConfig()
+}
+
+func (searcher *Searcher) simulate() {
+    nsims := config.Int["nsims"]
+    for i := 0; i < nsims; i++ {
         curNode := searcher.root
-        var lastNode *Node
-        var lastAction int
-        for curNode != nil && !curNode.Final() {
-            lastAction = curNode.Select(searcher.cPuct)
-            lastNode = curNode
-            curNode = curNode.children[lastAction]
+        nodes := make([]*Node, 0)
+        actionIdxs := make([]int, 0)
+
+        actionIdx := curNode.Select(searcher.rootCount)
+        actionIdxs = append(actionIdxs, actionIdx)
+        nodes = append(nodes, curNode)
+        parentCount := curNode.counts[actionIdx]
+        curNode = curNode.children[actionIdx]
+        for curNode != nil && !curNode.Finished() {
+            actionIdx := curNode.Select(parentCount)
+            actionIdxs = append(actionIdxs, actionIdx)
+            nodes = append(nodes, curNode)
+            parentCount = curNode.counts[actionIdx]
+            curNode = curNode.children[actionIdx]
+        }
+        if len(nodes) == 0 {
+            log.Panicf("Tried to simulate on a nil or finished root node")
         }
 
         var value float32
         if curNode != nil {
             value = curNode.Outcome()
         } else {
-            if lastNode == nil {
-                log.Panicf("The root node is nil")
-            }
-            lastNode.children[lastAction], value = lastNode.NewNode(lastAction, searcher.predictChan)
-            curNode = lastNode.children[lastAction]
+            node := nodes[len(nodes)-1]
+            actionIdx := actionIdxs[len(actionIdxs)-1]
+            node.children[actionIdx], value = node.AddChild(actionIdx, searcher.predictChan)
         }
 
-        for curNode.parent != nil {
-            action := curNode.parentAction
-            curNode = curNode.parent
-            curNode.Update(action, value)
+        for i := len(nodes)-1; i >= 0; i-- {
+            value *= -1.0 // in Go, the color always alternates between moves
+            node := nodes[i]
+            actionIdx := actionIdxs[i]
+            node.Update(actionIdx, value)
+            log.Infof("Updated player %d's node with %.4f", node.Color(), value)
+            log.Debugf("%v", node)
         }
-        sem <- 1
+        searcher.rootCount++
     }
-}
-
-func (searcher *Searcher) startSearching() {
-    for i := 0; i < 666; i++ {
-        go searcher.Simulate()
-    }
-}
-
-
-
-func (searcher *Searcher) startPredicting() {
-    modelPath := "/home/tischler/Software/tischler/main/out/models/uibam-10"
-    // modelPath := "/root/tischler/main/out/models/uibam-10"
-    model, err := tf.LoadSavedModel(modelPath, []string{"dimitri"}, nil)
-    if err != nil {
-        log.Panicf("Could not load model at %s", modelPath)
-    }
-    predict_batch_size := 666
-    for i := 0; i < 1; i++ {
-        go func() {
-            requests := make([]PredictionRequest, predict_batch_size)
-            // requests := make([]PredictionRequest, 1, predict_batch_size)
-            requestIndex := 0
-            for {
-                timeout := time.After(1 * time.Millisecond)
-                select {
-                case request := <-searcher.predictChan:
-                    requests[requestIndex] = request
-                    requestIndex++
-
-                    if requestIndex >= predict_batch_size {
-                        SendPredictions(&requests, requestIndex, model)
-                        requestIndex = 0
-                    }
-                case <-timeout:
-                    if requestIndex > 0 {
-                        SendPredictions(&requests, requestIndex, model)
-                        requestIndex = 0
-                    }
-                }
-            }
-        }()
-    }
-}
-
-func SendPredictions(requests *[]PredictionRequest, batchSize int, model *tf.SavedModel) {
-    batch := make([][][][]float32, batchSize)
-    for b := 0; b < batchSize; b++ {
-        batch[b] = (*requests)[b].observation
-    }
-
-    policies, values := Predict(batch, model)
-
-    for b := 0; b < batchSize; b++ {
-        (*requests)[b].resultChan <- Prediction{policies[b], values[b][0]}
-    }
-}
-
-func Predict(batch [][][][]float32, model *tf.SavedModel) ([][]float32, [][]float32) {
-    log.Infof("Processing batch: %+v\n", batch)
-
-    input, err := tf.NewTensor(batch)
-    if err != nil {
-        panic(err)
-    }
-
-    graph := model.Graph
-    inputs := map[tf.Output]*tf.Tensor{tf.Output{graph.Operation("observation_Input"), 0}: input}
-    outputs := []tf.Output{
-        tf.Output{graph.Operation("policy_head/MatMul"), 0},
-        tf.Output{graph.Operation("value_head/Tanh"), 0}}
-    log.Infof("Before Run\n")
-    prediction_arrays, err := model.Session.Run(inputs, outputs, nil)
-    log.Infof("After Run\n")
-    if err != nil {
-        panic(err)
-    }
-
-    policies, ok := prediction_arrays[0].Value().([][]float32)
-    if !ok {
-        panic("Policy has a wrong type")
-    }
-    values, ok := prediction_arrays[1].Value().([][]float32)
-    if !ok {
-        panic("Value has a wrong type")
-    }
-
-    log.Errorf("Output: %+v\n%+v\n", policies, values)
-    return policies, values
-}
-
-func main() {
-    // prepare logging
-    logFile, err := os.Create("searcher.log")
-    if err != nil {
-        panic("Could not create the log file")
-    }
-    logFormat := logging.MustStringFormatter(`%{color}%{time:15:04:05.000000} %{callpath} ▶ %{color:reset}%{message}`)
-    formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(logFile, "", 0), logFormat)
-    logging.SetLevel(logging.ERROR, "searcher")
-    logging.SetBackend(formattedBackend)
-
-    searcher := NewSearcher()
-    searcher.startPredicting()
-    searcher.Reset()
-    searcher.startSearching()
-
-    // Wait for a number of simulations to finish
-    sims := 6666
-    for i := 0; i < sims; i++ {
-        <-sem
-    }
-    log.Debugf("%+v\n", searcher.root)
+    searcher.done<- 1
 }
