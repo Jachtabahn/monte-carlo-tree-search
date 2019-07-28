@@ -45,8 +45,7 @@ type Game struct {
 func New() *Game {
 	board := make(map[int]int)
 
-	historySize := config.Int["history_size"]
-	differences := make([]boardDifference, historySize-1)
+	differences := make([]boardDifference, config.Int["history_size"]-1)
 	for i := range differences {
 		differences[i].rem = UNDEF
 	}
