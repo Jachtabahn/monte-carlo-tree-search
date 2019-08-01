@@ -264,10 +264,7 @@ func (searcher *Searcher) Exploit() (actionIdx int, policy []float32) {
 
 func (searcher *Searcher) Explore() (actionIdx int, policy []float32) {
     policy = make([]float32, config.Int["num_actions"])
-    sum := 0
-    for _, count := range searcher.root.counts {
-        sum += count
-    }
+    sum := searcher.rootCount-1
     if sum == 0 {
         log.Panicf("Called Explore() without prior doing any simulations")
     }
