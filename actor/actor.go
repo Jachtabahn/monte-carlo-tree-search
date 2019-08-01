@@ -53,7 +53,7 @@ func SaveExperience(experienceChan chan Example) {
 			log.Panicf("Could not write to experience file %v", exFile)
 		}
 		if nWritten != len(experienceBytes) {
-			log.Panicf("Only wrote %d out of %d bytes to experience file %v",
+			log.Panicf("Only wrote %d out of %d bytes to experience file %v (which may leave the experience file inconsistent)",
 				nWritten, len(experienceBytes), exFile)
 		}
 		exFile.Close()
@@ -107,7 +107,10 @@ func main() {
 	logFormat := logging.MustStringFormatter(`%{time:15:04:05.000000} %{shortfunc}() ▶ %{message}`)
 	formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(logFile, "", 0), logFormat)
 	logging.SetBackend(formattedBackend)
-	logging.SetLevel(logging.DEBUG, "actor")
+	logging.SetLevel(logging.ERROR, "actor")
+	logging.SetLevel(logging.ERROR, "predictor")
+	logging.SetLevel(logging.ERROR, "searcher")
+	logging.SetLevel(logging.ERROR, "gogame")
 
 	rand.Seed(int64(config.Int["random_seed"]))
 	maxGameLength := config.Int["max_game_length"]
