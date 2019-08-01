@@ -7,9 +7,9 @@ import (
 	"math/rand"
 	"fmt"
 	"github.com/satori/go.uuid"
-	"github.com/Habimm/monte-carlo-tree-search/config"
-	"github.com/Habimm/monte-carlo-tree-search/searcher"
-	"github.com/Habimm/monte-carlo-tree-search/predictor"
+	"gitlab.com/Habimm/tree-search-golang/config"
+	"gitlab.com/Habimm/tree-search-golang/searcher"
+	"gitlab.com/Habimm/tree-search-golang/predictor"
 	"github.com/op/go-logging"
 )
 

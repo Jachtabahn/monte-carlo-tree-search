@@ -5,9 +5,9 @@ import (
     "time"
     "fmt"
     "math/rand"
-    "github.com/Habimm/monte-carlo-tree-search/gogame"
-    "github.com/Habimm/monte-carlo-tree-search/predictor"
-    "github.com/Habimm/monte-carlo-tree-search/config"
+    "gitlab.com/Habimm/tree-search-golang/gogame"
+    "gitlab.com/Habimm/tree-search-golang/predictor"
+    "gitlab.com/Habimm/tree-search-golang/config"
     "github.com/op/go-logging"
 )
 

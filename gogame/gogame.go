@@ -1,7 +1,7 @@
 package gogame
 
 import (
-	"github.com/Habimm/monte-carlo-tree-search/config"
+	"gitlab.com/Habimm/tree-search-golang/config"
 	"github.com/op/go-logging"
 	"fmt"
 	"regexp"
