@@ -26,6 +26,7 @@ type Example struct {
 func SaveExperience(experienceChan chan Example) {
 	experienceBytes := make([]byte, 0)
 	isOpen := true
+	expPrefix := config.String["exp_prefix"]
 	for isOpen {
 		// collect a configured number of examples from SelfPlay through the experience channel
 		for i := 0; i < config.Int["num_examples_per_file"]; i++ {
@@ -44,7 +45,7 @@ func SaveExperience(experienceChan chan Example) {
 		if len(experienceBytes) == 0 { continue }
 
 		// write the collected experience bytes to a fresh file with a random filename
-		exFile, err := os.Create(fmt.Sprintf("exp/%s.ex", uuid.Must(uuid.NewV4())))
+		exFile, err := os.Create(fmt.Sprintf("%s/%s.ex", expPrefix, uuid.Must(uuid.NewV4())))
 		if err != nil {
 			log.Panicf("Could not create a file to write the examples:\n%v", experienceBytes)
 		}
@@ -87,18 +88,14 @@ func SelfPlay(searcher *searcher.Searcher, experienceChan chan Example) {
 	log.Infof("Performed a self-play of length %d in %v", gameLength, elapsed)
 
 	value := searcher.Outcome()
-	log.Infof("Outcome of game with length %d is %.4f from the perspective of player %d",
-		gameLength, value, searcher.Color())
 	for t := len(examples)-1; t >= 0; t-- {
 		value *= -1.0
 		examples[t].Value = value
-		log.Infof("Following example gets value %.4f\n%v", value, examples[t])
 		experienceChan<- examples[t]
 	}
 }
 
 func main() {
-	// prepare logging
 	logFile, err := os.Create("actor.log")
 	if err != nil {
 	    panic("Could not create log file")
@@ -113,15 +110,14 @@ func main() {
 	logging.SetLevel(logging.INFO, "gogame")
 
 	rand.Seed(int64(config.Int["random_seed"]))
-	maxGameLength := config.Int["max_game_length"]
-	experienceChan := make(chan Example, maxGameLength)
+	experienceChan := make(chan Example, config.Int["max_game_length"])
 	go SaveExperience(experienceChan)
 
 	predictChan := make(chan predictor.Request)
 	predictor.StartService(predictChan)
 	searcher.ExtendConfig()
 	searcher := searcher.NewSearcher(predictChan)
-	for i := 0; i < 3; i++ {
+	for i := 0; ; i++ {
 		SelfPlay(searcher, experienceChan)
 		log.Infof("Played game %d", i)
 	}
