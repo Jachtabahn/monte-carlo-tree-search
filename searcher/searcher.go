@@ -26,7 +26,7 @@ type Node struct {
 }
 
 func NewNode(predictChan chan predictor.Request) (newNode *Node) {
-    newGame := gogame.New()
+    newGame := gogame.NewSimple()
     newNode, _ = constructNewNode(newGame, predictChan)
     log.Infof("Constructed new root node")
     log.Infof("%v", newNode)
@@ -214,7 +214,6 @@ func constructNewNode(game *gogame.Game, predictChan chan predictor.Request) (ne
 type Searcher struct {
     root            *Node
     predictChan     chan predictor.Request
-    nsims           int
     rootCount       int
     done            chan int
 }
@@ -222,7 +221,6 @@ type Searcher struct {
 func NewSearcher(predictChan chan predictor.Request) *Searcher {
     searcher := &Searcher{
         predictChan: predictChan,
-        nsims: config.Int["nsims"],
         done: make(chan int)}
     return searcher
 }
@@ -236,16 +234,16 @@ func (searcher *Searcher) Reset() {
 func (searcher *Searcher) Search() {
     predict_batch_size := config.Int["predict_batch_size"]
     start := time.Now()
-    log.Debugf("Starting simulations")
+    log.Infof("Starting simulations")
     for i := 0; i < predict_batch_size; i++ {
-        go searcher.simulate()
+        go searcher.simulate(i)
     }
     for i := 0; i < predict_batch_size; i++ {
         <-searcher.done
     }
     t := time.Now()
     elapsed := t.Sub(start)
-    log.Infof("Performed %d simulations in %v", searcher.nsims, elapsed)
+    log.Infof("Performed %d simulations in %v", predict_batch_size*config.Int["nsims_per_goroutine"], elapsed)
 }
 
 func (searcher *Searcher) Exploit() (actionIdx int, policy []float32) {
@@ -321,9 +319,8 @@ func ExtendConfig() {
     gogame.ExtendConfig()
 }
 
-func (searcher *Searcher) simulate() {
-    nsims := config.Int["nsims"]
-    for i := 0; i < nsims; i++ {
+func (searcher *Searcher) simulate(grtIndex int) {
+    for nsims := config.Int["nsims_per_goroutine"]; nsims > 0; nsims-- {
         curNode := searcher.root
         nodes := make([]*Node, 0)
         actionIdxs := make([]int, 0)
@@ -343,6 +340,8 @@ func (searcher *Searcher) simulate() {
         if len(nodes) == 0 {
             log.Panicf("Tried to simulate on a nil or finished root node")
         }
+
+        log.Infof("Goroutine %d, at simulation %d, took actions %v", grtIndex, nsims, actionIdxs)
 
         var value float32
         if curNode != nil {
