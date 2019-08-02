@@ -17,6 +17,21 @@ var (
     log = logging.MustGetLogger("actor")
 )
 
+func read()
+
+
+func handleCommands() {
+	for commandString := range os.Stdin {
+		commandJson := json.Parse(commandString)
+		switch commandJson["name"] {
+		case "LoadModel":
+			modelPath := commandJson["model_path"]
+			predictor.StopService()
+			predictor.StartService(modelPath)
+		}
+	}
+}
+
 type Example struct {
 	Observation [][][]float32
 	Policy		[]float32
