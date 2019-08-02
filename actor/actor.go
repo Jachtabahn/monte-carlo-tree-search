@@ -67,6 +67,7 @@ func SelfPlay(searcher *searcher.Searcher, experienceChan chan Example) {
 	explorationLength := config.Int["exploration_length"]
 	examples := make([]Example, 0, maxGameLength)
 	gameLength := 0
+	gameRecord := sgf.New()
 	start := time.Now()
 	searcher.Reset()
 	for !searcher.Finished() && gameLength < maxGameLength {
@@ -82,12 +83,19 @@ func SelfPlay(searcher *searcher.Searcher, experienceChan chan Example) {
 		example := Example{Observation: searcher.Observation(), Policy: policy}
 		examples = append(examples, example)
 		searcher.Step(actionIdx)
+		gameRecord.AddAction(searcher.FavourableLegalActions()[actionIdx])
 	}
 	t := time.Now()
 	elapsed := t.Sub(start)
 	log.Infof("Performed a self-play of length %d in %v", gameLength, elapsed)
 
 	value := searcher.Outcome()
+
+	switch searcher.Color() {
+	case
+	}
+	gameRecord.AddResult(value)
+
 	for t := len(examples)-1; t >= 0; t-- {
 		value *= -1.0
 		examples[t].Value = value
