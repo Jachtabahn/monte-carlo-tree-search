@@ -51,15 +51,12 @@ func New() *Game {
 	}
 	differences = differences[:1]
 
-	// initially, every action is legal
-	boardsize := config.Int["boardsize"]
-	numActions := boardsize * boardsize + 1
-	favourableLegalActions := make([]int, numActions)
-	for a := 0; a < numActions; a++ {
-		favourableLegalActions[a] = a
-	}
-
+	numActions := config.Int["boardsize"]*config.Int["boardsize"]+1
+	favourableLegalActions := make([]int, 0, numActions)
 	game := &Game{board, differences, BLACK, favourableLegalActions, false}
+
+	game.updateLegalActions()
+
 	return game
 }
 
@@ -113,17 +110,9 @@ func (game *Game) Step(action int) {
 
 	game.currentColor = other(game.currentColor)
 
-	// take every empty intersection as a legal action to simplify computation
-	game.favourableLegalActions = []int{}
+	game.favourableLegalActions = game.favourableLegalActions[:0]
 	if !(action == PASS && game.lastPass) {
-		boardsize := config.Int["boardsize"]
-		boardLength := boardsize * boardsize
-		for action := 0; action < boardLength; action++ {
-			if game.board[action] == EMPTY {
-				game.favourableLegalActions = append(game.favourableLegalActions, action)
-			}
-		}
-		game.favourableLegalActions = append(game.favourableLegalActions, PASS)
+		game.updateLegalActions()
 	}
 
 	if action == PASS {
@@ -376,6 +365,82 @@ func ExtendConfig() {
 	config.Int["num_actions"] = config.Int["boardsize"] * config.Int["boardsize"] + 1
 }
 
+func (game *Game) updateLegalActions() {
+	otherColor := other(game.currentColor)
+	boardLength := config.Int["boardsize"] * config.Int["boardsize"]
+	boardLoop: for action := 0; action < boardLength; action++ {
+		// ensure that this intersection is empty
+		if game.board[action] != EMPTY {
+			continue boardLoop
+		}
+
+		// FORBID SUICIDE MOVES
+		/*
+			An empty intersection is a suicide move if and only if after putting my new stone there,
+			- every neighbour is non-empty,
+			- every enemy neighbour chain has at least one liberty, and
+			- my new stone's chain has no liberties.
+		*/
+
+		// ensure that all neighbours are non-empty
+		neighbours := adjacentPositions(action)
+		for _, neigh := range neighbours {
+			if game.board[neigh] == EMPTY {
+				game.favourableLegalActions = append(game.favourableLegalActions, action)
+				continue boardLoop
+			}
+		}
+
+		// ensure that, after this move, no enemy neighbour chain is captured
+		game.board[action] = game.currentColor
+		for _, neigh := range neighbours {
+			if game.board[neigh] == otherColor {
+				captured := game.capturedStones(neigh)
+				if len(captured) > 0 {
+					delete(game.board, action)
+					game.favourableLegalActions = append(game.favourableLegalActions, action)
+					continue boardLoop
+				}
+			}
+		}
+
+		// ensure that the new stone's chain survives
+		captured := game.capturedStones(action)
+		delete(game.board, action)
+		if len(captured) > 0 {
+			continue boardLoop
+		}
+
+		// END FORBID SUICIDE MOVES
+
+		// FORBID EYE MOVES
+		/*
+			An empty intersection is an eye move if and only if before putting my new stone there,
+			- every neighbour is mine, and
+			- every neighbour is in the same chain.
+		*/
+
+		// ensure that the new stone's neighbours are of the same color as itself
+		for _, neigh := range neighbours {
+			if game.board[neigh] != game.currentColor {
+				game.favourableLegalActions = append(game.favourableLegalActions, action)
+				continue boardLoop
+			}
+		}
+
+		// ensure that the new stone's neighbours are not altogether in one chain
+		sameChain := game.reachable(neighbours[0], neighbours[1:])
+		if sameChain {
+			continue boardLoop
+		}
+
+		// END FORBID EYE MOVES
+
+		game.favourableLegalActions = append(game.favourableLegalActions, action)
+	}
+	game.favourableLegalActions = append(game.favourableLegalActions, PASS)
+}
+
 func other(color int) int {
 	switch color {
 	case BLACK:
@@ -439,6 +504,42 @@ func (game *Game) capturedStones(startPosition int) (positions map[int]int) {
 	return // we found no liberty, so remove the whole chain
 }
 
+func (game *Game) reachable(startPosition int, targetPositions []int) bool {
+	color := game.board[startPosition]
+	positions := []int{startPosition}
+	reached := 0
+	oldCount := 0
+	for oldCount < len(positions) {
+		for _, pos := range positions[oldCount:] {
+			neighbours := adjacentPositions(pos)
+			for _, neigh := range neighbours {
+				if game.board[neigh] != color {
+					continue
+				} else if !contains(positions, neigh) {
+					if contains(targetPositions, neigh) {
+						reached++
+						if reached == len(targetPositions) {
+							return true
+						}
+					}
+					positions = append(positions, neigh)
+				}
+			}
+			oldCount++
+		}
+	}
+	return false
+}
+
+func contains(a []int, elem int) bool {
+	for _, old := range a {
+		if old == elem {
+			return true
+		}
+	}
+	return false
+}
+
 func adjacentPositions(pos int) (positions []int) {
 	boardsize := config.Int["boardsize"]
 	if pos % boardsize != 0 {
@@ -456,7 +557,7 @@ func adjacentPositions(pos int) (positions []int) {
 		positions = append(positions, above)
 	}
 
-	if pos < boardsize*boardsize - boardsize {
+	if pos < boardsize*boardsize-boardsize {
 		below := pos+boardsize
 		positions = append(positions, below)
 	}
