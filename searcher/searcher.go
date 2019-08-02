@@ -13,13 +13,14 @@ import (
 
 var (
     log = logging.MustGetLogger("searcher")
+    virtualLossUnit = float32(1.0)
 )
 
 type Node struct {
     game           *gogame.Game
     values          []float32
     counts          []int
-    totalCount      int
+    virtualLosses   []float32
     legalPolicy     []float32
     children        []*Node
 }
@@ -28,7 +29,7 @@ func NewNode(predictChan chan predictor.Request) (newNode *Node) {
     newGame := gogame.New()
     newNode, _ = constructNewNode(newGame, predictChan)
     log.Infof("Constructed new root node")
-    log.Debugf("%v", newNode)
+    log.Infof("%v", newNode)
     return
 }
 
@@ -39,18 +40,18 @@ func (node *Node) AddChild(actionIdx int, predictChan chan predictor.Request) (n
     newGame.Step(legalActions[actionIdx])
     newNode, value = constructNewNode(newGame, predictChan)
     log.Infof("Added new child node for player %d with value %.4f", newGame.Color(), value)
-    log.Debugf("%v", newNode)
+    log.Infof("%v", newNode)
     return
 }
 
 func (node *Node) Update(actionIdx int, value float32) {
+    node.virtualLosses[actionIdx] -= virtualLossUnit
     node.counts[actionIdx]++
-    node.totalCount++
     node.values[actionIdx] += (value - node.values[actionIdx]) / float32(node.counts[actionIdx])
 }
 
 func (node *Node) Score(actionIdx int, parentCount int) float32 {
-    return node.values[actionIdx] +
+    return node.values[actionIdx] - node.virtualLosses[actionIdx] +
         config.PolicyScoreFactor * node.legalPolicy[actionIdx] *
         float32(math.Sqrt(float64(parentCount))) / float32(1 + node.counts[actionIdx])
 }
@@ -64,6 +65,7 @@ func (node *Node) Select(parentCount int) (maxActionIdx int) {
             maxScore = score
         }
     }
+    node.virtualLosses[maxActionIdx] += virtualLossUnit
     return
 }
 
@@ -203,7 +205,7 @@ func constructNewNode(game *gogame.Game, predictChan chan predictor.Request) (ne
         game: game,
         values: make([]float32, len(legalActions)),
         counts: make([]int, len(legalActions)),
-        totalCount: 1,
+        virtualLosses: make([]float32, len(legalActions)),
         legalPolicy: legalPolicy,
         children: make([]*Node, len(legalActions))}
     return
@@ -234,7 +236,7 @@ func (searcher *Searcher) Reset() {
 func (searcher *Searcher) Search() {
     predict_batch_size := config.Int["predict_batch_size"]
     start := time.Now()
-    log.Infof("Starting simulations")
+    log.Debugf("Starting simulations")
     for i := 0; i < predict_batch_size; i++ {
         go searcher.simulate()
     }

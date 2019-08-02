@@ -20,7 +20,7 @@ type Response struct {
 }
 
 func StartService(predictChan chan Request) {
-    modelPath := "/home/tischler/Software/tischler/main/out/models/uibam-10"
+    modelPath := "/go/src/gitlab.com/Habimm/tree-search-golang/uibam-10"
     // modelPath := "/root/tischler/main/out/models/uibam-10"
     model, err := tf.LoadSavedModel(modelPath, []string{"dimitri"}, nil)
     if err != nil {
@@ -33,7 +33,7 @@ func StartService(predictChan chan Request) {
         go func() {
             requests := make([]Request, 1, predictBatchSize)
             for {
-                timeout := time.After(5 * time.Millisecond)
+                timeout := time.After(1 * time.Millisecond)
                 select {
                 case request := <-predictChan:
                     requests[len(requests)-1] = request
@@ -53,8 +53,8 @@ func StartService(predictChan chan Request) {
                         requests = requests[:1]
                     }
                     numTimeouts++
-                    log.Debugf("There has been %d timeouts while waiting on the prediction requests",
-                        numTimeouts)
+                    log.Infof("There has been %d timeouts at %d prediction requests",
+                        numTimeouts, numRequests)
                 }
             }
         }()

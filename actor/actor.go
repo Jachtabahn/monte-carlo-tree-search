@@ -87,12 +87,12 @@ func SelfPlay(searcher *searcher.Searcher, experienceChan chan Example) {
 	log.Infof("Performed a self-play of length %d in %v", gameLength, elapsed)
 
 	value := searcher.Outcome()
-	log.Debugf("Outcome of game with length %d is %.4f from the perspective of player %d",
+	log.Infof("Outcome of game with length %d is %.4f from the perspective of player %d",
 		gameLength, value, searcher.Color())
 	for t := len(examples)-1; t >= 0; t-- {
 		value *= -1.0
 		examples[t].Value = value
-		log.Debugf("Following example gets value %.4f\n%v", value, examples[t])
+		log.Infof("Following example gets value %.4f\n%v", value, examples[t])
 		experienceChan<- examples[t]
 	}
 }
@@ -107,10 +107,10 @@ func main() {
 	logFormat := logging.MustStringFormatter(`%{time:15:04:05.000000} %{shortfunc}() ▶ %{message}`)
 	formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(logFile, "", 0), logFormat)
 	logging.SetBackend(formattedBackend)
-	logging.SetLevel(logging.ERROR, "actor")
-	logging.SetLevel(logging.ERROR, "predictor")
-	logging.SetLevel(logging.ERROR, "searcher")
-	logging.SetLevel(logging.ERROR, "gogame")
+	logging.SetLevel(logging.INFO, "actor")
+	logging.SetLevel(logging.INFO, "predictor")
+	logging.SetLevel(logging.INFO, "searcher")
+	logging.SetLevel(logging.INFO, "gogame")
 
 	rand.Seed(int64(config.Int["random_seed"]))
 	maxGameLength := config.Int["max_game_length"]
@@ -121,7 +121,10 @@ func main() {
 	predictor.StartService(predictChan)
 	searcher.ExtendConfig()
 	searcher := searcher.NewSearcher(predictChan)
-	SelfPlay(searcher, experienceChan)
+	for i := 0; i < 3; i++ {
+		SelfPlay(searcher, experienceChan)
+		log.Infof("Played game %d", i)
+	}
 
 	close(experienceChan)
 	time.Sleep(1 * time.Second) // wait for SaveExperience() to save some more examples

@@ -10,7 +10,7 @@ var (
 		"exploration_length": 3,
 		"predict_batch_size": 2,
 		"num_examples_per_file": 14,
-		"nsims": 300,
+		"nsims": 600,
 		"random_seed": 3,
 		"history_size": 4}
 )
