@@ -7,7 +7,12 @@ import (
 	"time"
 )
 
-var log = logging.MustGetLogger("predictor")
+var (
+    RequestsChannel = make(chan Request)
+    serviceStop = make(chan int)
+    serviceDown = make(chan int)
+    log = logging.MustGetLogger("predictor")
+)
 
 type Request struct {
     Observation     [][][]float32
@@ -19,49 +24,58 @@ type Response struct {
     Value   float32
 }
 
-func StartService(predictChan chan Request) {
-    modelPath := "/go/src/gitlab.com/Habimm/tree-search-golang/uibam-10"
-    // modelPath := "/root/tischler/main/out/models/uibam-10"
+func StopService() {
+    serviceStop<- 1
+    <-serviceDown
+}
+
+func StartService(modelPath string) {
     model, err := tf.LoadSavedModel(modelPath, []string{"dimitri"}, nil)
     if err != nil {
         log.Panicf("Could not load model at %s", modelPath)
     }
+    go handlePredictionRequests(model)
+}
+
+func handlePredictionRequests(model *tf.SavedModel) {
     predictBatchSize := config.Int["predict_batch_size"]
     numTimeouts := 0
     numRequests := 0
-    for i := 0; i < 1; i++ {
-        go func() {
-            requests := make([]Request, 1, predictBatchSize)
-            for {
-                timeout := time.After(1 * time.Millisecond)
-                select {
-                case request := <-predictChan:
-                    requests[len(requests)-1] = request
+    requests := make([]Request, 1, predictBatchSize)
+    for {
+        timeout := time.After(1 * time.Millisecond)
+        select {
+        case request := <-RequestsChannel:
+            requests[len(requests)-1] = request
 
-                    if len(requests) < cap(requests) {
-                        requests = requests[:len(requests)+1]
-                    } else {
-                        sendPredictions(requests, model)
-                        requests = requests[:1]
-                    }
-                    numRequests++
-                    log.Debugf("There has been %d prediction requests!", numRequests)
-                case <-timeout:
-                    if len(requests) > 1 {
-                        requests = requests[:len(requests)-1]
-                        sendPredictions(requests, model)
-                        requests = requests[:1]
-                    }
-                    numTimeouts++
-                    log.Infof("There has been %d timeouts at %d prediction requests",
-                        numTimeouts, numRequests)
-                }
+            if len(requests) < cap(requests) {
+                requests = requests[:len(requests)+1]
+            } else {
+                computePredictions(requests, model)
+                requests = requests[:1]
             }
-        }()
+            numRequests++
+        case <-timeout:
+            if len(requests) > 1 {
+                computePredictions(requests[:len(requests)-1], model)
+                requests = requests[:1]
+            }
+            numTimeouts++
+            log.Infof("There has been %d timeouts at %d prediction requests",
+                numTimeouts, numRequests)
+        case <-serviceStop:
+            if len(requests) > 1 {
+                computePredictions(requests[:len(requests)-1], model)
+                requests = requests[:1]
+            }
+            log.Infof("Service shutting down")
+            serviceDown<- 1
+            return
+        }
     }
 }
 
-func sendPredictions(requests []Request, model *tf.SavedModel) {
+func computePredictions(requests []Request, model *tf.SavedModel) {
     batchSize := len(requests)
     batch := make([][][][]float32, batchSize)
     for b := 0; b < batchSize; b++ {
