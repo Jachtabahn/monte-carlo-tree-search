@@ -53,10 +53,30 @@ func New() *Game {
 
 	numActions := config.Int["boardsize"]*config.Int["boardsize"]+1
 	favourableLegalActions := make([]int, 0, numActions)
+	for a := 0; a < numActions; a++ {
+		favourableLegalActions = append(favourableLegalActions, a)
+	}
+
 	game := &Game{board, differences, BLACK, favourableLegalActions, false}
+	return game
+}
 
-	game.updateLegalActions()
+func NewSimple() *Game {
+	board := map[int]int{1:1, 3:2, 5:1, 6:1, 8:2, 9:2, 11:1, 13:2, 15:1, 16:1, 18:2, 19:2}
 
+	differences := []boardDifference{
+		{add:map[int]int{}, rem:19},
+		{add:map[int]int{}, rem:5},
+		{add:map[int]int{}, rem:9}}
+	differences = differences[:1]
+
+	numActions := config.Int["boardsize"]*config.Int["boardsize"]+1
+	favourableLegalActions := make([]int, 0, numActions)
+	favourableLegalActions = append(
+		favourableLegalActions,
+		[]int{2, 7, 12, 17, 20, 21, 22, 23, 24, 25}...)
+
+	game := &Game{board, differences, BLACK, favourableLegalActions, false}
 	return game
 }
 
