@@ -96,27 +96,26 @@ func SelfPlay(searcher *searcher.Searcher, experienceChan chan Example) {
 }
 
 func main() {
-	logFile, err := os.Create("actor.log")
-	if err != nil {
-	    panic("Could not create log file")
-	}
+	rand.Seed(int64(config.Int["random_seed"]))
+	searcher.ExtendConfig()
+
 	// other flags: %{shortfile} %{color} %{color:reset}
 	logFormat := logging.MustStringFormatter(`%{time:15:04:05.000000} %{shortfunc}() ▶ %{message}`)
-	formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(logFile, "", 0), logFormat)
+	formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(os.Stderr, "", 0), logFormat)
 	logging.SetBackend(formattedBackend)
 	logging.SetLevel(logging.INFO, "actor")
 	logging.SetLevel(logging.INFO, "predictor")
 	logging.SetLevel(logging.INFO, "searcher")
 	logging.SetLevel(logging.INFO, "gogame")
 
-	rand.Seed(int64(config.Int["random_seed"]))
+	predictor.StartService(config.String["model_path"])
+
+	go handleCommands()
+
 	experienceChan := make(chan Example, config.Int["max_game_length"])
 	go SaveExperience(experienceChan)
 
-	predictChan := make(chan predictor.Request)
-	predictor.StartService(predictChan)
-	searcher.ExtendConfig()
-	searcher := searcher.NewSearcher(predictChan)
+	searcher := searcher.NewSearcher(predictor.RequestsChannel)
 	for i := 0; ; i++ {
 		SelfPlay(searcher, experienceChan)
 		log.Infof("Played game %d", i)
