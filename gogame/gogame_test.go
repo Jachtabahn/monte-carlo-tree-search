@@ -23,10 +23,16 @@ func replayGame(filename string) {
 }
 
 func TestSetup(t *testing.T) {
-	logFormat := logging.MustStringFormatter(`%{color}%{time:15:04:05.000000} %{shortfile} %{shortfunc}() ▶ %{color:reset}%{message}`)
-	formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(os.Stderr, "", 0), logFormat)
+	// prepare logging
+	logFile, err := os.Create("gogame.log")
+	if err != nil {
+	    panic("Could not create log file")
+	}
+	// other flags: %{shortfile} %{color} %{color:reset}
+	logFormat := logging.MustStringFormatter(`%{time:15:04:05.000000} %{shortfunc}() ▶ %{message}`)
+	formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(logFile, "", 0), logFormat)
 	logging.SetBackend(formattedBackend)
-	logging.SetLevel(logging.ERROR, "gogame")
+	logging.SetLevel(logging.INFO, "gogame")
 }
 
 func TestGameCopy(t *testing.T) {
