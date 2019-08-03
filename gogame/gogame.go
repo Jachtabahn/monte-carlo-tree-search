@@ -1,7 +1,7 @@
 package gogame
 
 import (
-	"github.com/Habimm/monte-carlo-tree-search/config"
+	"gitlab.com/Habimm/tree-search-golang/config"
 	"github.com/op/go-logging"
 	"fmt"
 	"regexp"
@@ -33,53 +33,64 @@ type Game struct {
 	differences  []boardDifference
 
 	currentColor int
-	favourableLegalActions []int
+
+	/**
+		an action index (actionIdx) is an index to the favourableLegalActions slice
+		an action (action) is a possible value of that slice
+	*/
+	favourableLegalActions []int // ordered ascendingly
 	lastPass	 bool
 }
 
 func New() *Game {
 	board := make(map[int]int)
 
-	historySize := config.Int["history_size"]
-	differences := make([]boardDifference, historySize-1)
+	differences := make([]boardDifference, config.Int["history_size"]-1)
 	for i := range differences {
 		differences[i].rem = UNDEF
 	}
 	differences = differences[:1]
 
-	// initially, every action is legal
-	boardsize := config.Int["boardsize"]
-	numActions := boardsize * boardsize + 1
-	favourableLegalActions := make([]int, numActions)
+	numActions := config.Int["boardsize"]*config.Int["boardsize"]+1
+	favourableLegalActions := make([]int, 0, numActions)
 	for a := 0; a < numActions; a++ {
-		favourableLegalActions[a] = a
+		favourableLegalActions = append(favourableLegalActions, a)
 	}
 
 	game := &Game{board, differences, BLACK, favourableLegalActions, false}
-	log.Debugf("Created new game:\n%+v", game)
+	return game
+}
+
+func NewSimple() *Game {
+	board := map[int]int{1:1, 3:2, 5:1, 6:1, 8:2, 9:2, 11:1, 13:2, 15:1, 16:1, 18:2, 19:2}
+
+	differences := []boardDifference{
+		{add:map[int]int{}, rem:19},
+		{add:map[int]int{}, rem:5},
+		{add:map[int]int{}, rem:9}}
+	differences = differences[:1]
+
+	numActions := config.Int["boardsize"]*config.Int["boardsize"]+1
+	favourableLegalActions := make([]int, 0, numActions)
+	favourableLegalActions = append(
+		favourableLegalActions,
+		[]int{2, 7, 12, 17, 20, 21, 22, 23, 24, 25}...)
+
+	game := &Game{board, differences, BLACK, favourableLegalActions, false}
 	return game
 }
 
 func (game *Game) Step(action int) {
-	if action >= len(game.favourableLegalActions) {
-		log.Panicf("Called Step() with invalid index %d, having only %d legal actions", action, len(game.favourableLegalActions))
-	}
-	lAction := game.favourableLegalActions[action]
-	game.StepLegal(lAction)
-}
-
-func (game *Game) StepLegal(lAction int) {
 	diff := boardDifference{add: make(map[int]int), rem: UNDEF}
-	if lAction != PASS {
-		if game.board[lAction] != EMPTY {
-			log.Panicf("Called StepLegal() with lAction %d which is not empty of color %d", lAction, game.board[lAction])
+	if action != PASS {
+		if game.board[action] != EMPTY {
+			log.Panicf("Called Step() with action %d which is not empty of color %d", action, game.board[action])
 		}
-		log.Debugf("Taking action %d with color %d", lAction, game.currentColor)
-		game.board[lAction] = game.currentColor
+		game.board[action] = game.currentColor
 
 		// possibly remove stones of the other color
 		otherColor := other(game.currentColor)
-		neighbours := adjacentPositions(lAction)
+		neighbours := adjacentPositions(action)
 		for _, neigh := range neighbours {
 			if game.board[neigh] == otherColor {
 				captured := game.capturedStones(neigh)
@@ -94,18 +105,18 @@ func (game *Game) StepLegal(lAction int) {
 		}
 
 		// possibly remove my own stones
-		captured := game.capturedStones(lAction)
+		captured := game.capturedStones(action)
 		for cap := range captured {
 			// don't add the new suicidal stone to the previous position because it wasn't there
-			if cap != lAction {
+			if cap != action {
 				diff.add[cap] = game.currentColor
 			}
 			delete(game.board, cap)
 		}
 
 		// if my new stone is still on the board, remember to remove it to get to the previous position
-		if game.board[lAction] == game.currentColor {
-			diff.rem = lAction
+		if game.board[action] == game.currentColor {
+			diff.rem = action
 		}
 	}
 
@@ -119,29 +130,19 @@ func (game *Game) StepLegal(lAction int) {
 
 	game.currentColor = other(game.currentColor)
 
-	// take every empty intersection as a legal action to simplify computation
-	game.favourableLegalActions = []int{}
-	if !(lAction == PASS && game.lastPass) {
-		boardsize := config.Int["boardsize"]
-		boardLength := boardsize * boardsize
-		for action := 0; action < boardLength; action++ {
-			if game.board[action] == EMPTY {
-				game.favourableLegalActions = append(game.favourableLegalActions, action)
-			}
-		}
-		game.favourableLegalActions = append(game.favourableLegalActions, PASS)
+	game.favourableLegalActions = game.favourableLegalActions[:0]
+	if !(action == PASS && game.lastPass) {
+		game.updateLegalActions()
 	}
 
-	if lAction == PASS {
+	if action == PASS {
 		game.lastPass = true
 	} else {
 		game.lastPass = false
 	}
-
-	log.Debugf("Changed game:\n%+v", game)
 }
 
-func (game *Game) Outcome() float32 {
+func (game *Game) Score() float32 {
 	// count black and white stones
 	whiteScore, blackScore := float32(0.0), float32(0.0)
 	for _, color := range game.board {
@@ -169,7 +170,6 @@ func (game *Game) Outcome() float32 {
 
 	// go through each unknown position and build its induced connected graph consisting only of empty fields
 	for unknownPos := range unknownTerritory {
-		log.Debugf("Popping unknown field %d", unknownPos)
 
 		// this map contains the "outer shell" of the territory we are currently exploring
 		newTerritory := make(map[int]struct{}, 1)
@@ -180,7 +180,6 @@ func (game *Game) Outcome() float32 {
 		for len(newTerritory) > 0 {
 			for pos := range newTerritory {
 				count++
-				log.Debugf("Popping new field %d", pos)
 				delete(newTerritory, pos)
 				delete(unknownTerritory, pos)
 
@@ -194,10 +193,8 @@ func (game *Game) Outcome() float32 {
 						}
 					case BLACK:
 						blackTerritory = true
-						log.Debugf("The position %d is adjacent to black %d", pos, neigh)
 					case WHITE:
 						whiteTerritory = true
-						log.Debugf("The position %d is adjacent to white %d", pos, neigh)
 					}
 				}
 			}
@@ -216,10 +213,9 @@ func (game *Game) Outcome() float32 {
 		}
 	}
 
-	log.Debugf("Total black score is %.1f", blackScore)
-	log.Debugf("Total white score before komi is %.1f", whiteScore)
 	komi := config.Float["komi"]
 	whiteScore += komi
+	log.Debugf("Total black score is %.1f", blackScore)
 	log.Debugf("Total white score after komi is %.1f", whiteScore)
 
 	switch game.currentColor {
@@ -231,6 +227,17 @@ func (game *Game) Outcome() float32 {
 		log.Panicf("Current color is invalid %d", game.currentColor)
 		return float32(0.0) // required because the compiler treats log.Panicf() and panic() differently
 	}
+}
+
+func (game *Game) Outcome() float32 {
+	score := game.Score()
+	if score > 0.0 {
+		return float32(1.0)
+	} else if score < 0.0 {
+		return float32(-1.0)
+	}
+	log.Panicf("Outcome is draw")
+	return 0.0 // necessary for some reason
 }
 
 func (game *Game) Observation() [][][]float32 {
@@ -290,8 +297,8 @@ func (game *Game) Copy() (gameCopy *Game) {
 	gameCopy.currentColor = game.currentColor
 
 	gameCopy.favourableLegalActions = make([]int, len(game.favourableLegalActions))
-	for a, lAction := range game.favourableLegalActions {
-		gameCopy.favourableLegalActions[a] = lAction
+	for a, action := range game.favourableLegalActions {
+		gameCopy.favourableLegalActions[a] = action
 	}
 
 	gameCopy.lastPass = game.lastPass
@@ -325,7 +332,7 @@ func (game *Game) String() (nice string) {
 }
 
 func SgfActions(filename string) []int {
-	PASS = config.Int["boardsize"] * config.Int["boardsize"] // test case sets "boardsize" right before going here
+	PASS = config.Int["boardsize"] * config.Int["boardsize"]
 	sgfMoveRegex := regexp.MustCompile(`;[B,W]\[[a-z]{0,2}\]`)
 	sgfFile, err := os.Open(filename)
 	if err != nil {
@@ -353,12 +360,32 @@ func SgfActions(filename string) []int {
     	if len(sgfActionBar) <= 4 {
 	        action = PASS
     	} else {
-	        action = sgfToLegalAction(sgfActionBar[3:5])
+	        action = sgfToAction(sgfActionBar[3:5])
     	}
 
         actions = append(actions, action)
     }
     return actions
+}
+
+func FillSgfBytes(recordBytes []byte, color int, actions []int, outcome float32) []byte {
+	recordBytes = append(recordBytes, "(;"...)
+	recordBytes = append(recordBytes, "GM[1]"...)
+	recordBytes = append(recordBytes, "FF[4]"...)
+	recordBytes = append(recordBytes, "CA[UTF-8]"...)
+	recordBytes = append(recordBytes, "AP[actor:0.0.0]"...)
+	recordBytes = append(recordBytes, fmt.Sprintf("KM[%.1f]", config.Float["komi"])...)
+	recordBytes = append(recordBytes, fmt.Sprintf("SZ[%d]", config.Int["boardsize"])...)
+	recordBytes = append(recordBytes, fmt.Sprintf("DT[2019-07-25]")...)
+	recordBytes = append(recordBytes, fmt.Sprintf("RE[%.0f]", outcome)...)
+	for _, action := range actions {
+		colorByte := toSgfColor(color)
+		color = other(color)
+		sgfAction := actionToSgf(action)
+		recordBytes = append(recordBytes, fmt.Sprintf(";%c[%c%c]", colorByte, sgfAction[0], sgfAction[1])...)
+	}
+	recordBytes = append(recordBytes, ')')
+	return recordBytes
 }
 
 func (game *Game) Color() int {
@@ -371,6 +398,87 @@ func (game *Game) FavourableLegalActions() []int {
 
 func (game *Game) Finished() bool {
 	return len(game.favourableLegalActions) == 0
+}
+
+// introduce new game-specific knowledge into the configuration
+func ExtendConfig() {
+	config.Int["num_actions"] = config.Int["boardsize"] * config.Int["boardsize"] + 1
+}
+
+func (game *Game) updateLegalActions() {
+	otherColor := other(game.currentColor)
+	boardLength := config.Int["boardsize"] * config.Int["boardsize"]
+	boardLoop: for action := 0; action < boardLength; action++ {
+		// ensure that this intersection is empty
+		if game.board[action] != EMPTY {
+			continue boardLoop
+		}
+
+		// FORBID SUICIDE MOVES
+		/*
+			An empty intersection is a suicide move if and only if after putting my new stone there,
+			- every neighbour is non-empty,
+			- every enemy neighbour chain has at least one liberty, and
+			- my new stone's chain has no liberties.
+		*/
+
+		// ensure that all neighbours are non-empty
+		neighbours := adjacentPositions(action)
+		for _, neigh := range neighbours {
+			if game.board[neigh] == EMPTY {
+				game.favourableLegalActions = append(game.favourableLegalActions, action)
+				continue boardLoop
+			}
+		}
+
+		// ensure that, after this move, no enemy neighbour chain is captured
+		game.board[action] = game.currentColor
+		for _, neigh := range neighbours {
+			if game.board[neigh] == otherColor {
+				captured := game.capturedStones(neigh)
+				if len(captured) > 0 {
+					delete(game.board, action)
+					game.favourableLegalActions = append(game.favourableLegalActions, action)
+					continue boardLoop
+				}
+			}
+		}
+
+		// ensure that the new stone's chain survives
+		captured := game.capturedStones(action)
+		delete(game.board, action)
+		if len(captured) > 0 {
+			continue boardLoop
+		}
+
+		// END FORBID SUICIDE MOVES
+
+		// FORBID EYE MOVES
+		/*
+			An empty intersection is an eye move if and only if before putting my new stone there,
+			- every neighbour is mine, and
+			- every neighbour is in the same chain.
+		*/
+
+		// ensure that the new stone's neighbours are of the same color as itself
+		for _, neigh := range neighbours {
+			if game.board[neigh] != game.currentColor {
+				game.favourableLegalActions = append(game.favourableLegalActions, action)
+				continue boardLoop
+			}
+		}
+
+		// ensure that the new stone's neighbours are not altogether in one chain
+		sameChain := game.reachable(neighbours[0], neighbours[1:])
+		if sameChain {
+			continue boardLoop
+		}
+
+		// END FORBID EYE MOVES
+
+		game.favourableLegalActions = append(game.favourableLegalActions, action)
+	}
+	game.favourableLegalActions = append(game.favourableLegalActions, PASS)
 }
 
 func other(color int) int {
@@ -395,14 +503,36 @@ func fromSgfColor(c byte) int {
 	panic(fmt.Sprintf("Unaccepted color describing byte %b", c))
 }
 
+func toSgfColor(c int) byte {
+	switch c {
+	case WHITE:
+		return 'W'
+	case BLACK:
+		return 'B'
+	}
+	panic(fmt.Sprintf("Unaccepted color %c", c))
+}
+
 // an SGF action consists of two alphabet letters <width><height>, where "aa" indicates the top-left corner
-func sgfToLegalAction(sgfAction string) int {
-    aAscii := rune('a')
-    width, height := rune(sgfAction[0]) - aAscii, rune(sgfAction[1]) - aAscii
+func sgfToAction(sgfAction string) int {
+    aRune := rune('a')
+    width, height := rune(sgfAction[0]) - aRune, rune(sgfAction[1]) - aRune
 
     boardsize := config.Int["boardsize"]
     action := int(height) * boardsize + int(width)
     return action
+}
+
+func actionToSgf(action int) [2]byte {
+    boardsize := config.Int["boardsize"]
+	height := rune(action / boardsize)
+	width := rune(action % boardsize)
+    aRune := rune('a')
+
+    sgfAction := [2]byte{
+    	byte(aRune + width),
+		byte(aRune + height)}
+    return sgfAction
 }
 
 func (game *Game) capturedStones(startPosition int) (positions map[int]int) {
@@ -436,6 +566,42 @@ func (game *Game) capturedStones(startPosition int) (positions map[int]int) {
 	return // we found no liberty, so remove the whole chain
 }
 
+func (game *Game) reachable(startPosition int, targetPositions []int) bool {
+	color := game.board[startPosition]
+	positions := []int{startPosition}
+	reached := 0
+	oldCount := 0
+	for oldCount < len(positions) {
+		for _, pos := range positions[oldCount:] {
+			neighbours := adjacentPositions(pos)
+			for _, neigh := range neighbours {
+				if game.board[neigh] != color {
+					continue
+				} else if !contains(positions, neigh) {
+					if contains(targetPositions, neigh) {
+						reached++
+						if reached == len(targetPositions) {
+							return true
+						}
+					}
+					positions = append(positions, neigh)
+				}
+			}
+			oldCount++
+		}
+	}
+	return false
+}
+
+func contains(a []int, elem int) bool {
+	for _, old := range a {
+		if old == elem {
+			return true
+		}
+	}
+	return false
+}
+
 func adjacentPositions(pos int) (positions []int) {
 	boardsize := config.Int["boardsize"]
 	if pos % boardsize != 0 {
@@ -453,7 +619,7 @@ func adjacentPositions(pos int) (positions []int) {
 		positions = append(positions, above)
 	}
 
-	if pos < boardsize*boardsize - boardsize {
+	if pos < boardsize*boardsize-boardsize {
 		below := pos+boardsize
 		positions = append(positions, below)
 	}
