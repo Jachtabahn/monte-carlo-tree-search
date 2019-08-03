@@ -39,8 +39,6 @@ func StartService(modelPath string) {
 
 func handlePredictionRequests(model *tf.SavedModel) {
     predictBatchSize := config.Int["predict_batch_size"]
-    numTimeouts := 0
-    numRequests := 0
     requests := make([]Request, 1, predictBatchSize)
     for {
         timeout := time.After(1 * time.Millisecond)
@@ -54,15 +52,11 @@ func handlePredictionRequests(model *tf.SavedModel) {
                 computePredictions(requests, model)
                 requests = requests[:1]
             }
-            numRequests++
         case <-timeout:
             if len(requests) > 1 {
                 computePredictions(requests[:len(requests)-1], model)
                 requests = requests[:1]
             }
-            numTimeouts++
-            log.Infof("There has been %d timeouts at %d prediction requests",
-                numTimeouts, numRequests)
         case <-serviceStop:
             if len(requests) > 1 {
                 computePredictions(requests[:len(requests)-1], model)
