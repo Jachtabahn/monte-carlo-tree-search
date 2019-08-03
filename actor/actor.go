@@ -8,8 +8,9 @@ import (
 	"fmt"
 	"github.com/satori/go.uuid"
 	"gitlab.com/Habimm/tree-search-golang/config"
-	"gitlab.com/Habimm/tree-search-golang/searcher"
+	"gitlab.com/Habimm/tree-search-golang/treesearch"
 	"gitlab.com/Habimm/tree-search-golang/predictor"
+	"gitlab.com/Habimm/tree-search-golang/gogame"
 	"github.com/op/go-logging"
 )
 
@@ -20,7 +21,54 @@ var (
 type Example struct {
 	Observation [][][]float32
 	Policy		[]float32
-	Value 		float32
+	Outcome 	float32
+}
+
+type GameRecord struct {
+	InitialColor 	int
+	Actions 		[]int
+	Outcome 		float32
+}
+
+/*
+(;
+GM[1]FF[4]CA[UTF-8]AP[Sabaki:0.43.3]KM[5.5]SZ[5]DT[2019-07-25];
+B[cc];
+W[bc];
+B[cb];
+W[cd];
+B[ab];
+W[de];
+B[dd];
+W[ac];
+B[ee];
+W[];
+B[bb];
+W[];
+B[])
+*/
+
+func SaveRecord(recordsChan chan GameRecord) {
+	recordBytes := make([]byte, 0)
+	recordPrefix := config.String["record_prefix"]
+	for record := range recordsChan {
+		recordBytes = recordBytes[:0]
+		recordBytes = gogame.FillSgfBytes(recordBytes, record.InitialColor, record.Actions, record.Outcome)
+
+		sgfFile, err := os.Create(fmt.Sprintf("%s/%s.sgf", recordPrefix, uuid.Must(uuid.NewV4())))
+		if err != nil {
+			log.Panicf("Could not create a file to write the game record:\n%v", recordBytes)
+		}
+		nWritten, err := sgfFile.Write(recordBytes)
+		if err != nil {
+			log.Panicf("Could not write to game record file %v", sgfFile)
+		}
+		if nWritten != len(recordBytes) {
+			log.Panicf("Only wrote %d out of %d bytes to game record file %v",
+				nWritten, len(recordBytes), sgfFile)
+		}
+		sgfFile.Close()
+	}
 }
 
 func SaveExperience(experienceChan chan Example) {
@@ -28,6 +76,7 @@ func SaveExperience(experienceChan chan Example) {
 	isOpen := true
 	expPrefix := config.String["exp_prefix"]
 	for isOpen {
+		experienceBytes = experienceBytes[:0]
 		// collect a configured number of examples from SelfPlay through the experience channel
 		for i := 0; i < config.Int["num_examples_per_file"]; i++ {
 			example, open := <-experienceChan
@@ -58,18 +107,20 @@ func SaveExperience(experienceChan chan Example) {
 				nWritten, len(experienceBytes), exFile)
 		}
 		exFile.Close()
-		experienceBytes = experienceBytes[:0]
 	}
 }
 
-func SelfPlay(searcher *searcher.Searcher, experienceChan chan Example) {
+func SelfPlay(
+	searcher *treesearch.Searcher,
+	experienceChan chan Example,
+	recordsChan chan GameRecord) {
 	maxGameLength := config.Int["max_game_length"]
 	explorationLength := config.Int["exploration_length"]
 	examples := make([]Example, 0, maxGameLength)
 	gameLength := 0
-	gameRecord := sgf.New()
 	start := time.Now()
 	searcher.Reset()
+	record := GameRecord{InitialColor: searcher.Color(), Actions: make([]int, 0)}
 	for !searcher.Finished() && gameLength < maxGameLength {
 		searcher.Search()
 		var actionIdx int
@@ -80,32 +131,31 @@ func SelfPlay(searcher *searcher.Searcher, experienceChan chan Example) {
 			actionIdx, policy = searcher.Exploit()
 		}
 		gameLength++
+		action := searcher.FavourableLegalActions()[actionIdx]
+		record.Actions = append(record.Actions, action)
+		log.Infof("Taking action %d", action)
 		example := Example{Observation: searcher.Observation(), Policy: policy}
 		examples = append(examples, example)
 		searcher.Step(actionIdx)
-		gameRecord.AddAction(searcher.FavourableLegalActions()[actionIdx])
 	}
 	t := time.Now()
 	elapsed := t.Sub(start)
 	log.Infof("Performed a self-play of length %d in %v", gameLength, elapsed)
 
-	value := searcher.Outcome()
-
-	switch searcher.Color() {
-	case
-	}
-	gameRecord.AddResult(value)
+	outcome := searcher.Outcome()
+	record.Outcome = outcome
+	recordsChan<- record
 
 	for t := len(examples)-1; t >= 0; t-- {
-		value *= -1.0
-		examples[t].Value = value
+		outcome *= -1.0
+		examples[t].Outcome = outcome
 		experienceChan<- examples[t]
 	}
 }
 
 func main() {
 	rand.Seed(int64(config.Int["random_seed"]))
-	searcher.ExtendConfig()
+	treesearch.ExtendConfig()
 
 	// other flags: %{shortfile} %{color} %{color:reset}
 	logFormat := logging.MustStringFormatter(`%{time:15:04:05.000000} %{shortfunc}() ▶ %{message}`)
@@ -113,22 +163,24 @@ func main() {
 	logging.SetBackend(formattedBackend)
 	logging.SetLevel(logging.INFO, "actor")
 	logging.SetLevel(logging.INFO, "predictor")
-	logging.SetLevel(logging.INFO, "searcher")
+	logging.SetLevel(logging.INFO, "treesearch")
 	logging.SetLevel(logging.INFO, "gogame")
 
 	predictor.StartService(config.String["model_path"])
 
-	go handleCommands()
-
 	experienceChan := make(chan Example, config.Int["max_game_length"])
 	go SaveExperience(experienceChan)
 
-	searcher := searcher.NewSearcher(predictor.RequestsChannel)
+	recordsChan := make(chan GameRecord, 1)
+	go SaveRecord(recordsChan)
+
+	searcher := treesearch.New(predictor.RequestsChannel)
 	for i := 0; ; i++ {
-		SelfPlay(searcher, experienceChan)
+		SelfPlay(searcher, experienceChan, recordsChan)
 		log.Infof("Played game %d", i)
 	}
 
 	close(experienceChan)
+	close(recordsChan)
 	time.Sleep(1 * time.Second) // wait for SaveExperience() to save some more examples
 }

@@ -332,7 +332,7 @@ func (game *Game) String() (nice string) {
 }
 
 func SgfActions(filename string) []int {
-	PASS = config.Int["boardsize"] * config.Int["boardsize"] // test case sets "boardsize" right before going here
+	PASS = config.Int["boardsize"] * config.Int["boardsize"]
 	sgfMoveRegex := regexp.MustCompile(`;[B,W]\[[a-z]{0,2}\]`)
 	sgfFile, err := os.Open(filename)
 	if err != nil {
@@ -360,12 +360,32 @@ func SgfActions(filename string) []int {
     	if len(sgfActionBar) <= 4 {
 	        action = PASS
     	} else {
-	        action = sgfToLegalAction(sgfActionBar[3:5])
+	        action = sgfToAction(sgfActionBar[3:5])
     	}
 
         actions = append(actions, action)
     }
     return actions
+}
+
+func FillSgfBytes(recordBytes []byte, color int, actions []int, outcome float32) []byte {
+	recordBytes = append(recordBytes, "(;"...)
+	recordBytes = append(recordBytes, "GM[1]"...)
+	recordBytes = append(recordBytes, "FF[4]"...)
+	recordBytes = append(recordBytes, "CA[UTF-8]"...)
+	recordBytes = append(recordBytes, "AP[actor:0.0.0]"...)
+	recordBytes = append(recordBytes, fmt.Sprintf("KM[%.1f]", config.Float["komi"])...)
+	recordBytes = append(recordBytes, fmt.Sprintf("SZ[%d]", config.Int["boardsize"])...)
+	recordBytes = append(recordBytes, fmt.Sprintf("DT[2019-07-25]")...)
+	recordBytes = append(recordBytes, fmt.Sprintf("RE[%.0f]", outcome)...)
+	for _, action := range actions {
+		colorByte := toSgfColor(color)
+		color = other(color)
+		sgfAction := actionToSgf(action)
+		recordBytes = append(recordBytes, fmt.Sprintf(";%c[%c%c]", colorByte, sgfAction[0], sgfAction[1])...)
+	}
+	recordBytes = append(recordBytes, ')')
+	return recordBytes
 }
 
 func (game *Game) Color() int {
@@ -483,14 +503,36 @@ func fromSgfColor(c byte) int {
 	panic(fmt.Sprintf("Unaccepted color describing byte %b", c))
 }
 
+func toSgfColor(c int) byte {
+	switch c {
+	case WHITE:
+		return 'W'
+	case BLACK:
+		return 'B'
+	}
+	panic(fmt.Sprintf("Unaccepted color %c", c))
+}
+
 // an SGF action consists of two alphabet letters <width><height>, where "aa" indicates the top-left corner
-func sgfToLegalAction(sgfAction string) int {
-    aAscii := rune('a')
-    width, height := rune(sgfAction[0]) - aAscii, rune(sgfAction[1]) - aAscii
+func sgfToAction(sgfAction string) int {
+    aRune := rune('a')
+    width, height := rune(sgfAction[0]) - aRune, rune(sgfAction[1]) - aRune
 
     boardsize := config.Int["boardsize"]
     action := int(height) * boardsize + int(width)
     return action
+}
+
+func actionToSgf(action int) [2]byte {
+    boardsize := config.Int["boardsize"]
+	height := rune(action / boardsize)
+	width := rune(action % boardsize)
+    aRune := rune('a')
+
+    sgfAction := [2]byte{
+    	byte(aRune + width),
+		byte(aRune + height)}
+    return sgfAction
 }
 
 func (game *Game) capturedStones(startPosition int) (positions map[int]int) {
