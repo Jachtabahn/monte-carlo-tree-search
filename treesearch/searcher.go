@@ -1,4 +1,4 @@
-package searcher
+package treesearch
 
 import (
     "math"
@@ -12,54 +12,54 @@ import (
 )
 
 var (
-    log = logging.MustGetLogger("searcher")
+    log = logging.MustGetLogger("treesearch")
     virtualLossUnit = float32(1.0)
 )
 
-type Node struct {
+type treeNode struct {
     game           *gogame.Game
     values          []float32
     counts          []int
     virtualLosses   []float32
     legalPolicy     []float32
-    children        []*Node
+    children        []*treeNode
 }
 
-func NewNode(predictChan chan predictor.Request) (newNode *Node) {
-    newGame := gogame.NewSimple()
+func newNode(predictChan chan predictor.Request) (newNode *treeNode) {
+    newGame := gogame.New()
     newNode, _ = constructNewNode(newGame, predictChan)
     log.Infof("Constructed new root node")
-    log.Infof("%v", newNode)
+    log.Debugf("%v", newNode)
     return
 }
 
-func (node *Node) AddChild(actionIdx int, predictChan chan predictor.Request) (newNode *Node, value float32) {
+func (node *treeNode) addChild(actionIdx int, predictChan chan predictor.Request) (newNode *treeNode, value float32) {
     newGame := node.game.Copy()
     legalActions := newGame.FavourableLegalActions()
     log.Debugf("Stepping with the %dth out of %d legal actions", actionIdx, len(legalActions))
     newGame.Step(legalActions[actionIdx])
     newNode, value = constructNewNode(newGame, predictChan)
     log.Infof("Added new child node for player %d with value %.4f", newGame.Color(), value)
-    log.Infof("%v", newNode)
+    log.Debugf("%v", newNode)
     return
 }
 
-func (node *Node) Update(actionIdx int, value float32) {
+func (node *treeNode) update(actionIdx int, value float32) {
     node.virtualLosses[actionIdx] -= virtualLossUnit
     node.counts[actionIdx]++
     node.values[actionIdx] += (value - node.values[actionIdx]) / float32(node.counts[actionIdx])
 }
 
-func (node *Node) Score(actionIdx int, parentCount int) float32 {
+func (node *treeNode) score(actionIdx int, parentCount int) float32 {
     return node.values[actionIdx] - node.virtualLosses[actionIdx] +
         config.PolicyScoreFactor * node.legalPolicy[actionIdx] *
         float32(math.Sqrt(float64(parentCount))) / float32(1 + node.counts[actionIdx])
 }
 
-func (node *Node) Select(parentCount int) (maxActionIdx int) {
-    maxScore := node.Score(0, parentCount)
+func (node *treeNode) selectAction(parentCount int) (maxActionIdx int) {
+    maxScore := node.score(0, parentCount)
     for actionIdx := 1; actionIdx < len(node.values); actionIdx++ {
-        score := node.Score(actionIdx, parentCount)
+        score := node.score(actionIdx, parentCount)
         if score > maxScore {
             maxActionIdx = actionIdx
             maxScore = score
@@ -70,10 +70,10 @@ func (node *Node) Select(parentCount int) (maxActionIdx int) {
 }
 
 // the returned string never ends in a newline
-func (node *Node) String() (nice string) {
+func (node *treeNode) String() (nice string) {
     nice += fmt.Sprintf("%+v\n", *node) // dereference to avoid recursion
     nice += node.game.String()
-    legalActions := node.FavourableLegalActions()
+    legalActions := node.favourableLegalActions()
     if len(legalActions) > 0 {
         nice += "Counts:\n"
         nice += statsString(node.counts, legalActions)+"\n"
@@ -85,23 +85,23 @@ func (node *Node) String() (nice string) {
     return
 }
 
-func (node *Node) Outcome() float32 {
+func (node *treeNode) outcome() float32 {
     return node.game.Outcome()
 }
 
-func (node *Node) Color() int {
+func (node *treeNode) color() int {
     return node.game.Color()
 }
 
-func (node *Node) Finished() bool {
+func (node *treeNode) finished() bool {
     return node.game.Finished()
 }
 
-func (node *Node) FavourableLegalActions() []int {
+func (node *treeNode) favourableLegalActions() []int {
     return node.game.FavourableLegalActions()
 }
 
-func (node *Node) Observation() [][][]float32 {
+func (node *treeNode) observation() [][][]float32 {
     return node.game.Observation()
 }
 
@@ -178,7 +178,7 @@ func statsString(stats interface{}, legalActions []int) (nice string) {
     return
 }
 
-func constructNewNode(game *gogame.Game, predictChan chan predictor.Request) (newNode *Node, value float32) {
+func constructNewNode(game *gogame.Game, predictChan chan predictor.Request) (newNode *treeNode, value float32) {
     var legalPolicy []float32
     legalActions := game.FavourableLegalActions()
     if len(legalActions) == 0 {
@@ -201,33 +201,30 @@ func constructNewNode(game *gogame.Game, predictChan chan predictor.Request) (ne
             legalPolicy[actionIdx] /= sum
         }
     }
-    newNode = &Node{
+    newNode = &treeNode{
         game: game,
         values: make([]float32, len(legalActions)),
         counts: make([]int, len(legalActions)),
         virtualLosses: make([]float32, len(legalActions)),
         legalPolicy: legalPolicy,
-        children: make([]*Node, len(legalActions))}
+        children: make([]*treeNode, len(legalActions))}
     return
 }
 
 type Searcher struct {
-    root            *Node
+    root            *treeNode
     predictChan     chan predictor.Request
     rootCount       int
-    done            chan int
+    simsDone        chan int
 }
 
-func NewSearcher(predictChan chan predictor.Request) *Searcher {
-    searcher := &Searcher{
-        predictChan: predictChan,
-        done: make(chan int)}
-    return searcher
+func New(predictChan chan predictor.Request) *Searcher {
+    return &Searcher{predictChan: predictChan, simsDone: make(chan int)}
 }
 
 func (searcher *Searcher) Reset() {
     log.Debugf("Resetting the game tree")
-    searcher.root = NewNode(searcher.predictChan)
+    searcher.root = newNode(searcher.predictChan)
     searcher.rootCount = 1
 }
 
@@ -239,7 +236,7 @@ func (searcher *Searcher) Search() {
         go searcher.simulate(i)
     }
     for i := 0; i < predict_batch_size; i++ {
-        <-searcher.done
+        <-searcher.simsDone
     }
     t := time.Now()
     elapsed := t.Sub(start)
@@ -257,7 +254,7 @@ func (searcher *Searcher) Exploit() (actionIdx int, policy []float32) {
     }
 
     policy = make([]float32, config.Int["num_actions"])
-    legalActions := searcher.root.FavourableLegalActions()
+    legalActions := searcher.root.favourableLegalActions()
     policy[legalActions[actionIdx]] = float32(1.0)
     return
 }
@@ -274,7 +271,7 @@ func (searcher *Searcher) Explore() (actionIdx int, policy []float32) {
     actionIdx = -1
     accumulated := float32(0.0)
     r := 1.0 - rand.Float32() // r is the minimum probability mass we want to gather
-    legalActions := searcher.root.FavourableLegalActions()
+    legalActions := searcher.root.favourableLegalActions()
     for a, action := range legalActions {
         policy[action] = float32(searcher.root.counts[a]) / float32(sum)
 
@@ -289,30 +286,33 @@ func (searcher *Searcher) Explore() (actionIdx int, policy []float32) {
 
 func (searcher *Searcher) Step(actionIdx int) {
     if logging.GetLevel("searcher") >= logging.DEBUG {
-        legalActions := searcher.root.FavourableLegalActions()
-        log.Debugf("Taking move %d", legalActions[actionIdx])
+        log.Debugf("Taking move %d", searcher.root.favourableLegalActions()[actionIdx])
     }
 
     if searcher.root.children[actionIdx] == nil {
-        searcher.root.children[actionIdx], _ = searcher.root.AddChild(actionIdx, searcher.predictChan)
+        searcher.root.children[actionIdx], _ = searcher.root.addChild(actionIdx, searcher.predictChan)
     }
     searcher.root = searcher.root.children[actionIdx]
 }
 
 func (searcher *Searcher) Observation() [][][]float32 {
-    return searcher.root.Observation()
+    return searcher.root.observation()
 }
 
 func (searcher *Searcher) Outcome() float32 {
-    return searcher.root.Outcome()
+    return searcher.root.outcome()
 }
 
 func (searcher *Searcher) Finished() bool {
-    return searcher.root.Finished()
+    return searcher.root.finished()
 }
 
 func (searcher *Searcher) Color() int {
-    return searcher.root.Color()
+    return searcher.root.color()
+}
+
+func (searcher *Searcher) FavourableLegalActions() []int {
+    return searcher.root.favourableLegalActions()
 }
 
 func ExtendConfig() {
@@ -322,16 +322,16 @@ func ExtendConfig() {
 func (searcher *Searcher) simulate(grtIndex int) {
     for nsims := config.Int["nsims_per_goroutine"]; nsims > 0; nsims-- {
         curNode := searcher.root
-        nodes := make([]*Node, 0)
+        nodes := make([]*treeNode, 0)
         actionIdxs := make([]int, 0)
 
-        actionIdx := curNode.Select(searcher.rootCount)
+        actionIdx := curNode.selectAction(searcher.rootCount)
         actionIdxs = append(actionIdxs, actionIdx)
         nodes = append(nodes, curNode)
         parentCount := curNode.counts[actionIdx]
         curNode = curNode.children[actionIdx]
-        for curNode != nil && !curNode.Finished() {
-            actionIdx := curNode.Select(parentCount)
+        for curNode != nil && !curNode.finished() {
+            actionIdx := curNode.selectAction(parentCount)
             actionIdxs = append(actionIdxs, actionIdx)
             nodes = append(nodes, curNode)
             parentCount = curNode.counts[actionIdx]
@@ -345,22 +345,25 @@ func (searcher *Searcher) simulate(grtIndex int) {
 
         var value float32
         if curNode != nil {
-            value = curNode.Outcome()
+            value = curNode.outcome()
         } else {
             node := nodes[len(nodes)-1]
             actionIdx := actionIdxs[len(actionIdxs)-1]
-            node.children[actionIdx], value = node.AddChild(actionIdx, searcher.predictChan)
+            node.children[actionIdx], value = node.addChild(actionIdx, searcher.predictChan)
         }
 
         for i := len(nodes)-1; i >= 0; i-- {
             value *= -1.0 // in Go, the color always alternates between moves
             node := nodes[i]
             actionIdx := actionIdxs[i]
-            node.Update(actionIdx, value)
-            log.Infof("Updated player %d's node with %.4f", node.Color(), value)
+            node.update(actionIdx, value)
+            log.Infof("Updated player %d's node with %.4f", node.color(), value)
             log.Debugf("%v", node)
         }
         searcher.rootCount++
+        if grtIndex == 0 {
+            log.Infof("%v", searcher.root)
+        }
     }
-    searcher.done<- 1
+    searcher.simsDone<- 1
 }
