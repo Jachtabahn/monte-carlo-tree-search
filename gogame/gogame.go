@@ -8,16 +8,10 @@ import (
 	"os"
 )
 
-const (
-	// it is important that EMPTY gets the zero value, because a missing position in the board map indicates an empty position
-	EMPTY = iota
-	BLACK
-	WHITE
-)
-
 var (
 	log = logging.MustGetLogger("gogame")
 	PASS = config.Int["boardsize"] * config.Int["boardsize"]
+	EMPTY = 0 	// EMPTY must get the zero value because a missing position in the board map indicates an empty position
 	UNDEF = -1
 )
 
@@ -57,7 +51,7 @@ func New() *Game {
 		favourableLegalActions = append(favourableLegalActions, a)
 	}
 
-	game := &Game{board, differences, BLACK, favourableLegalActions, false}
+	game := &Game{board, differences, config.BLACK, favourableLegalActions, false}
 	return game
 }
 
@@ -76,7 +70,7 @@ func NewSimple() *Game {
 		favourableLegalActions,
 		[]int{2, 7, 12, 17, 20, 21, 22, 23, 24, 25}...)
 
-	game := &Game{board, differences, BLACK, favourableLegalActions, false}
+	game := &Game{board, differences, config.BLACK, favourableLegalActions, false}
 	return game
 }
 
@@ -147,9 +141,9 @@ func (game *Game) Score() float32 {
 	whiteScore, blackScore := float32(0.0), float32(0.0)
 	for _, color := range game.board {
 		switch color {
-		case BLACK:
+		case config.BLACK:
 			blackScore++
-		case WHITE:
+		case config.WHITE:
 			whiteScore++
 		}
 	}
@@ -191,9 +185,9 @@ func (game *Game) Score() float32 {
 						if present {
 							newTerritory[neigh] = struct{}{}
 						}
-					case BLACK:
+					case config.BLACK:
 						blackTerritory = true
-					case WHITE:
+					case config.WHITE:
 						whiteTerritory = true
 					}
 				}
@@ -219,9 +213,9 @@ func (game *Game) Score() float32 {
 	log.Debugf("Total white score after komi is %.1f", whiteScore)
 
 	switch game.currentColor {
-	case BLACK:
+	case config.BLACK:
 		return blackScore - whiteScore
-	case WHITE:
+	case config.WHITE:
 		return whiteScore - blackScore
 	default:
 		log.Panicf("Current color is invalid %d", game.currentColor)
@@ -269,7 +263,7 @@ func (game *Game) Observation() [][][]float32 {
 					channel++
 				}
 			}
-			if game.currentColor == WHITE {
+			if game.currentColor == config.WHITE {
 				observation[height][width][channel] = float32(1.0)
 			}
 		}
@@ -336,23 +330,23 @@ func SgfActions(filename string) []int {
 	sgfMoveRegex := regexp.MustCompile(`;[B,W]\[[a-z]{0,2}\]`)
 	sgfFile, err := os.Open(filename)
 	if err != nil {
-		panic("Could not open SGF file")
+		log.Panicf("Could not open SGF file")
 	}
 	sgfBytes := make([]byte, 2048)
 	count, err := sgfFile.Read(sgfBytes)
 	if err != nil {
-		panic("Could not read from the SGF file")
+		log.Panicf("Could not read from the SGF file")
 	}
 	sgfString := string(sgfBytes[:count])
 	sgfActionBars := sgfMoveRegex.FindAllString(sgfString, -1)
 
     actions := make([]int, 0, len(sgfActionBars))
-    alternatingColor := BLACK
+    alternatingColor := config.BLACK
     for _, sgfActionBar := range sgfActionBars {
     	// sanity check
     	color := fromSgfColor(sgfActionBar[1])
     	if color != alternatingColor {
-    		panic("The colors of the SGF moves do not alternate")
+    		log.Panicf("The colors of the SGF moves do not alternate")
     	}
         alternatingColor = other(alternatingColor)
 
@@ -483,34 +477,24 @@ func (game *Game) updateLegalActions() {
 
 func other(color int) int {
 	switch color {
-	case BLACK:
-		return WHITE
-	case WHITE:
-		return BLACK
-	default:
-		log.Panicf("Input %d not accepted (only %d and %d)", color, BLACK, WHITE)
-		return UNDEF
+	case config.BLACK:
+		return config.WHITE
+	case config.WHITE:
+		return config.BLACK
 	}
+	log.Panicf("Input %d not accepted (only %d and %d)", color, config.BLACK, config.WHITE)
+	panic(0)
 }
 
 func fromSgfColor(c byte) int {
 	switch c {
 	case 'W':
-		return WHITE
+		return config.WHITE
 	case 'B':
-		return BLACK
+		return config.BLACK
 	}
-	panic(fmt.Sprintf("Unaccepted color describing byte %b", c))
-}
-
-func toSgfColor(c int) byte {
-	switch c {
-	case WHITE:
-		return 'W'
-	case BLACK:
-		return 'B'
-	}
-	panic(fmt.Sprintf("Unaccepted color %c", c))
+	log.Panicf("Unaccepted color describing byte %b", c)
+	panic(0)
 }
 
 // an SGF action consists of two alphabet letters <width><height>, where "aa" indicates the top-left corner
@@ -631,8 +615,8 @@ func boardString(board map[int]int) (nice string) {
 	boardsize := config.Int["boardsize"]
 	boardLength := boardsize * boardsize
 	for field, column := 0, 0; field < boardLength; field++ {
-		if board[field] == BLACK { nice += "X" }
-		if board[field] == WHITE { nice += "O" }
+		if board[field] == config.BLACK { nice += "X" }
+		if board[field] == config.WHITE { nice += "O" }
 		if board[field] == EMPTY { nice += "-" }
 
 		if column == boardsize-1 {
