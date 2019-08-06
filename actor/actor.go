@@ -8,11 +8,11 @@ import (
 	"math/rand"
 	"fmt"
 	"github.com/satori/go.uuid"
+	"github.com/op/go-logging"
 	"gitlab.com/Habimm/tree-search-golang/config"
 	"gitlab.com/Habimm/tree-search-golang/treesearch"
 	"gitlab.com/Habimm/tree-search-golang/predictor"
-	"gitlab.com/Habimm/tree-search-golang/gogame"
-	"github.com/op/go-logging"
+	"gitlab.com/Habimm/tree-search-golang/record"
 )
 
 var (
@@ -99,7 +99,7 @@ func SaveExperience(experienceChan chan Example) {
 }
 
 func SelfPlay(
-	searcher *treesearch.Searcher,
+	searcher *treesearch.Agent,
 	experienceChan chan Example,
 	recordsChan chan *record.Info) {
 	maxGameLength := config.Int["max_game_length"]
@@ -130,10 +130,6 @@ func SelfPlay(
 		examples = append(examples, example)
 		searcher.Step(actionIdx)
 	}
-	t := time.Now()
-	elapsed := t.Sub(start)
-	log.Infof("Performed a self-play of length %d in %v", gameLength, elapsed)
-
 	outcome := searcher.Outcome()
 	record.Outcome = outcome
 	recordsChan<- record
@@ -143,6 +139,9 @@ func SelfPlay(
 		examples[t].Outcome = outcome
 		experienceChan<- examples[t]
 	}
+
+	elapsed := time.Now().Sub(start)
+	log.Infof("Performed a self-play of length %d in %v", gameLength, elapsed)
 }
 
 func main() {
@@ -153,10 +152,10 @@ func main() {
 	logFormat := logging.MustStringFormatter(`%{time:15:04:05.000000} %{shortfunc}() ▶ %{message}`)
 	formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(os.Stderr, "", 0), logFormat)
 	logging.SetBackend(formattedBackend)
-	logging.SetLevel(logging.INFO, "actor")
-	logging.SetLevel(logging.INFO, "predictor")
-	logging.SetLevel(logging.INFO, "treesearch")
-	logging.SetLevel(logging.INFO, "gogame")
+	logging.SetLevel(logging.DEBUG, "actor")
+	logging.SetLevel(logging.ERROR, "predictor")
+	logging.SetLevel(logging.ERROR, "treesearch")
+	logging.SetLevel(logging.ERROR, "record")
 
 	predictor.StartService()
 
