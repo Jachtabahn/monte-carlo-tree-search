@@ -22,4 +22,6 @@ var (
 
 const (
     PolicyScoreFactor = float32(1.0)
+    BLACK = 1
+    WHITE = 2
 )
