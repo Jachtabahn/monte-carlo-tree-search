@@ -231,7 +231,7 @@ func (game *Game) Outcome() float32 {
 		return float32(-1.0)
 	}
 	log.Panicf("Outcome is draw")
-	return 0.0 // necessary for some reason
+	panic(0)
 }
 
 func (game *Game) Observation() [][][]float32 {
