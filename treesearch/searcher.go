@@ -25,14 +25,6 @@ type treeNode struct {
     children        []*treeNode
 }
 
-func newNode(predictChan chan predictor.Request) (newNode *treeNode) {
-    newGame := gogame.New()
-    newNode, _ = constructNewNode(newGame, predictChan)
-    log.Infof("Constructed new root node")
-    log.Debugf("%v", newNode)
-    return
-}
-
 func (node *treeNode) addChild(actionIdx int, predictChan chan predictor.Request) (newNode *treeNode, value float32) {
     newGame := node.game.Copy()
     legalActions := newGame.FavourableLegalActions()
@@ -222,9 +214,11 @@ func New(predictChan chan predictor.Request) *Agent {
     return &Agent{predictChan: predictChan, simsDone: make(chan int)}
 }
 
-    log.Debugf("Resetting the game tree")
-    searcher.root = newNode(searcher.predictChan)
 func (searcher *Agent) Reset() {
+    newGame := gogame.New()
+    searcher.root, _ = constructNewNode(newGame, searcher.predictChan)
+    log.Infof("Constructed new root node")
+    log.Debugf("%v", searcher.root)
     searcher.rootCount = 1
 }
 
