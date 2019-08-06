@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"time"
+	"bufio"
 	"math/rand"
 	"fmt"
 	"github.com/satori/go.uuid"
@@ -18,17 +19,34 @@ var (
     log = logging.MustGetLogger("actor")
 )
 
-func read()
-
-
 func handleCommands() {
-	for commandString := range os.Stdin {
-		commandJson := json.Parse(commandString)
-		switch commandJson["name"] {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		commandBytes := scanner.Bytes()
+		log.Debugf("Received command string: %s", commandBytes)
+
+		var commandJson interface{}
+		err := json.Unmarshal(commandBytes, &commandJson)
+		if err != nil {
+			log.Errorf("Ignoring following command that is not valid JSON: %s", commandBytes)
+			continue
+		}
+		log.Debugf("Parsed command json: %s", commandJson)
+
+		commandMap := commandJson.(map[string]interface{})
+		commandName := commandMap["name"]
+		switch commandName {
 		case "LoadModel":
-			modelPath := commandJson["model_path"]
+			modelPath := commandMap["model_path"]
+			config.String["model_path"] = modelPath.(string)
+			log.Debugf("Loading new model %s", modelPath)
 			predictor.StopService()
-			predictor.StartService(modelPath)
+			predictor.StartService()
+		case "ChangeFolder":
+			folder := commandMap["folder"]
+			log.Debugf("Changing folder to %s", folder)
+		default:
+			log.Debugf("Unknown command: %s", commandName)
 		}
 	}
 }
@@ -140,7 +158,7 @@ func main() {
 	logging.SetLevel(logging.INFO, "treesearch")
 	logging.SetLevel(logging.INFO, "gogame")
 
-	predictor.StartService(config.String["model_path"])
+	predictor.StartService()
 
 	experienceChan := make(chan Example, config.Int["max_game_length"])
 	go SaveExperience(experienceChan)
@@ -148,6 +166,7 @@ func main() {
 	recordsChan := make(chan *record.Info, 1)
 	go record.Save(recordsChan)
 
+	go handleCommands()
 	searcher := treesearch.New(predictor.RequestsChannel)
 	for i := 0; ; i++ {
 		SelfPlay(searcher, experienceChan, recordsChan)
