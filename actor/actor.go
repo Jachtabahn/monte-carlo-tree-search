@@ -109,7 +109,9 @@ func SaveExperience(experienceChan chan Example) {
 		if len(experienceBytes) == 0 { continue }
 
 		// write the collected experience bytes to a fresh file with a random filename
-		exFile, err := os.Create(fmt.Sprintf("%s/%s.ex", expPrefix, uuid.Must(uuid.NewV4())))
+		exFile, err := os.Create(fmt.Sprintf(
+			"%s%c%s.ex", expPrefix,
+			os.PathSeparator, uuid.Must(uuid.NewV4())))
 		if err != nil {
 			log.Panicf("Could not create a file to write the examples:\n%v", experienceBytes)
 		}
