@@ -362,26 +362,6 @@ func SgfActions(filename string) []int {
     return actions
 }
 
-func FillSgfBytes(recordBytes []byte, color int, actions []int, outcome float32) []byte {
-	recordBytes = append(recordBytes, "(;"...)
-	recordBytes = append(recordBytes, "GM[1]"...)
-	recordBytes = append(recordBytes, "FF[4]"...)
-	recordBytes = append(recordBytes, "CA[UTF-8]"...)
-	recordBytes = append(recordBytes, "AP[actor:0.0.0]"...)
-	recordBytes = append(recordBytes, fmt.Sprintf("KM[%.1f]", config.Float["komi"])...)
-	recordBytes = append(recordBytes, fmt.Sprintf("SZ[%d]", config.Int["boardsize"])...)
-	recordBytes = append(recordBytes, fmt.Sprintf("DT[2019-07-25]")...)
-	recordBytes = append(recordBytes, fmt.Sprintf("RE[%.0f]", outcome)...)
-	for _, action := range actions {
-		colorByte := toSgfColor(color)
-		color = other(color)
-		sgfAction := actionToSgf(action)
-		recordBytes = append(recordBytes, fmt.Sprintf(";%c[%c%c]", colorByte, sgfAction[0], sgfAction[1])...)
-	}
-	recordBytes = append(recordBytes, ')')
-	return recordBytes
-}
-
 func (game *Game) Color() int {
 	return game.currentColor
 }
@@ -396,7 +376,7 @@ func (game *Game) Finished() bool {
 
 // introduce new game-specific knowledge into the configuration
 func ExtendConfig() {
-	config.Int["num_actions"] = config.Int["boardsize"] * config.Int["boardsize"] + 1
+	config.Int["num_actions"] = config.Int["boardsize"]*config.Int["boardsize"]+1
 }
 
 func (game *Game) updateLegalActions() {
@@ -505,18 +485,6 @@ func sgfToAction(sgfAction string) int {
     boardsize := config.Int["boardsize"]
     action := int(height) * boardsize + int(width)
     return action
-}
-
-func actionToSgf(action int) [2]byte {
-    boardsize := config.Int["boardsize"]
-	height := rune(action / boardsize)
-	width := rune(action % boardsize)
-    aRune := rune('a')
-
-    sgfAction := [2]byte{
-    	byte(aRune + width),
-		byte(aRune + height)}
-    return sgfAction
 }
 
 func (game *Game) capturedStones(startPosition int) (positions map[int]int) {
