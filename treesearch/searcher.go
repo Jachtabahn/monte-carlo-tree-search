@@ -318,6 +318,10 @@ func (searcher *Agent) FavourableLegalActions() []int {
     return searcher.root.favourableLegalActions()
 }
 
+func (searcher *Agent) Name() string {
+    return fmt.Sprintf("Tree search agent with model %s", config.String["model_path"])
+}
+
 func ExtendConfig() {
     gogame.ExtendConfig()
 }
