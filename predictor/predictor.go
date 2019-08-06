@@ -30,7 +30,7 @@ func StopService() {
 }
 
 func StartService(modelPath string) {
-    model, err := tf.LoadSavedModel(modelPath, []string{"dimitri"}, nil)
+    model, err := tf.LoadSavedModel(config.String["model_path"], []string{"dimitri"}, nil)
     if err != nil {
         log.Panicf("Could not load model at %s", modelPath)
     }
