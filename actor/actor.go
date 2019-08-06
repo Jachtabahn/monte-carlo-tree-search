@@ -39,53 +39,6 @@ type Example struct {
 	Outcome 	float32
 }
 
-type GameRecord struct {
-	InitialColor 	int
-	Actions 		[]int
-	Outcome 		float32
-}
-
-/*
-(;
-GM[1]FF[4]CA[UTF-8]AP[Sabaki:0.43.3]KM[5.5]SZ[5]DT[2019-07-25];
-B[cc];
-W[bc];
-B[cb];
-W[cd];
-B[ab];
-W[de];
-B[dd];
-W[ac];
-B[ee];
-W[];
-B[bb];
-W[];
-B[])
-*/
-
-func SaveRecord(recordsChan chan GameRecord) {
-	recordBytes := make([]byte, 0)
-	recordPrefix := config.String["record_prefix"]
-	for record := range recordsChan {
-		recordBytes = recordBytes[:0]
-		recordBytes = gogame.FillSgfBytes(recordBytes, record.InitialColor, record.Actions, record.Outcome)
-
-		sgfFile, err := os.Create(fmt.Sprintf("%s/%s.sgf", recordPrefix, uuid.Must(uuid.NewV4())))
-		if err != nil {
-			log.Panicf("Could not create a file to write the game record:\n%v", recordBytes)
-		}
-		nWritten, err := sgfFile.Write(recordBytes)
-		if err != nil {
-			log.Panicf("Could not write to game record file %v", sgfFile)
-		}
-		if nWritten != len(recordBytes) {
-			log.Panicf("Only wrote %d out of %d bytes to game record file %v",
-				nWritten, len(recordBytes), sgfFile)
-		}
-		sgfFile.Close()
-	}
-}
-
 func SaveExperience(experienceChan chan Example) {
 	experienceBytes := make([]byte, 0)
 	isOpen := true
@@ -130,14 +83,18 @@ func SaveExperience(experienceChan chan Example) {
 func SelfPlay(
 	searcher *treesearch.Searcher,
 	experienceChan chan Example,
-	recordsChan chan GameRecord) {
+	recordsChan chan *record.Info) {
 	maxGameLength := config.Int["max_game_length"]
 	explorationLength := config.Int["exploration_length"]
 	examples := make([]Example, 0, maxGameLength)
 	gameLength := 0
 	start := time.Now()
 	searcher.Reset()
-	record := GameRecord{InitialColor: searcher.Color(), Actions: make([]int, 0)}
+	record := &record.Info{
+		InitialColor: searcher.Color(),
+		Actions: make([]int, 0),
+		BlackName: searcher.Name(),
+		WhiteName: searcher.Name()}
 	for !searcher.Finished() && gameLength < maxGameLength {
 		searcher.Search()
 		var actionIdx int
@@ -188,8 +145,8 @@ func main() {
 	experienceChan := make(chan Example, config.Int["max_game_length"])
 	go SaveExperience(experienceChan)
 
-	recordsChan := make(chan GameRecord, 1)
-	go SaveRecord(recordsChan)
+	recordsChan := make(chan *record.Info, 1)
+	go record.Save(recordsChan)
 
 	searcher := treesearch.New(predictor.RequestsChannel)
 	for i := 0; ; i++ {

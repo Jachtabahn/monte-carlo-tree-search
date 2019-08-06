@@ -13,3 +13,5 @@
 
 # Experience samples (output by actor.go)
 *.ex
+
+*.sgf
