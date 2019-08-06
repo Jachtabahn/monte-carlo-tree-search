@@ -211,24 +211,27 @@ func constructNewNode(game *gogame.Game, predictChan chan predictor.Request) (ne
     return
 }
 
-type Searcher struct {
+type Agent struct {
     root            *treeNode
     predictChan     chan predictor.Request
     rootCount       int
     simsDone        chan int
 }
 
-func New(predictChan chan predictor.Request) *Searcher {
-    return &Searcher{predictChan: predictChan, simsDone: make(chan int)}
+func New(predictChan chan predictor.Request) *Agent {
+    return &Agent{predictChan: predictChan, simsDone: make(chan int)}
 }
 
-func (searcher *Searcher) Reset() {
     log.Debugf("Resetting the game tree")
     searcher.root = newNode(searcher.predictChan)
+func (searcher *Agent) Reset() {
     searcher.rootCount = 1
 }
 
-func (searcher *Searcher) Search() {
+func (searcher *Agent) Search() {
+    if searcher.root == nil || searcher.root.finished() {
+        log.Panicf("Cannot search from a nil or finished root node")
+    }
     predict_batch_size := config.Int["predict_batch_size"]
     start := time.Now()
     log.Infof("Starting simulations")
@@ -243,7 +246,7 @@ func (searcher *Searcher) Search() {
     log.Infof("Performed %d simulations in %v", predict_batch_size*config.Int["nsims_per_goroutine"], elapsed)
 }
 
-func (searcher *Searcher) Exploit() (actionIdx int, policy []float32) {
+func (searcher *Agent) Exploit() (actionIdx int, policy []float32) {
     actionIdx = -1
     maxCount := -1
     for a, count := range searcher.root.counts {
@@ -259,7 +262,7 @@ func (searcher *Searcher) Exploit() (actionIdx int, policy []float32) {
     return
 }
 
-func (searcher *Searcher) Explore() (actionIdx int, policy []float32) {
+func (searcher *Agent) Explore() (actionIdx int, policy []float32) {
     policy = make([]float32, config.Int["num_actions"])
     sum := searcher.rootCount-1
     if sum == 0 {
@@ -284,8 +287,8 @@ func (searcher *Searcher) Explore() (actionIdx int, policy []float32) {
     return
 }
 
-func (searcher *Searcher) Step(actionIdx int) {
-    if logging.GetLevel("searcher") >= logging.DEBUG {
+func (searcher *Agent) Step(actionIdx int) {
+    if logging.GetLevel("treesearch") >= logging.DEBUG {
         log.Debugf("Taking move %d", searcher.root.favourableLegalActions()[actionIdx])
     }
 
@@ -295,23 +298,23 @@ func (searcher *Searcher) Step(actionIdx int) {
     searcher.root = searcher.root.children[actionIdx]
 }
 
-func (searcher *Searcher) Observation() [][][]float32 {
+func (searcher *Agent) Observation() [][][]float32 {
     return searcher.root.observation()
 }
 
-func (searcher *Searcher) Outcome() float32 {
+func (searcher *Agent) Outcome() float32 {
     return searcher.root.outcome()
 }
 
-func (searcher *Searcher) Finished() bool {
+func (searcher *Agent) Finished() bool {
     return searcher.root.finished()
 }
 
-func (searcher *Searcher) Color() int {
+func (searcher *Agent) Color() int {
     return searcher.root.color()
 }
 
-func (searcher *Searcher) FavourableLegalActions() []int {
+func (searcher *Agent) FavourableLegalActions() []int {
     return searcher.root.favourableLegalActions()
 }
 
@@ -319,7 +322,7 @@ func ExtendConfig() {
     gogame.ExtendConfig()
 }
 
-func (searcher *Searcher) simulate(grtIndex int) {
+func (searcher *Agent) simulate(grtIndex int) {
     for nsims := config.Int["nsims_per_goroutine"]; nsims > 0; nsims-- {
         curNode := searcher.root
         nodes := make([]*treeNode, 0)
@@ -337,11 +340,6 @@ func (searcher *Searcher) simulate(grtIndex int) {
             parentCount = curNode.counts[actionIdx]
             curNode = curNode.children[actionIdx]
         }
-        if len(nodes) == 0 {
-            log.Panicf("Tried to simulate on a nil or finished root node")
-        }
-
-        log.Infof("Goroutine %d, at simulation %d, took actions %v", grtIndex, nsims, actionIdxs)
 
         var value float32
         if curNode != nil {
@@ -362,7 +360,7 @@ func (searcher *Searcher) simulate(grtIndex int) {
         }
         searcher.rootCount++
         if grtIndex == 0 {
-            log.Infof("%v", searcher.root)
+            log.Debugf("%v", searcher.root)
         }
     }
     searcher.simsDone<- 1
