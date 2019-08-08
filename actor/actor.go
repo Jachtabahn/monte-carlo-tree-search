@@ -6,8 +6,6 @@ import (
 	"time"
 	"bufio"
 	"math/rand"
-	"fmt"
-	"github.com/satori/go.uuid"
 	"github.com/op/go-logging"
 	"gitlab.com/Habimm/tree-search-golang/config"
 	"gitlab.com/Habimm/tree-search-golang/treesearch"
@@ -55,13 +53,13 @@ type Example struct {
 	Outcome 	float32
 }
 
-func SaveExperience(experienceChan chan Example) {
+func SendExperience(experienceChan chan Example) {
 	expPrefix := config.String["exp_prefix"]
-	expFile, err := os.Create(expPrefix)
+	experiencePipe, err := os.Create(expPrefix)
 	if err != nil {
 		log.Panicf("Could not open the pipe to write the examples")
 	}
-	fileInfo, err := expFile.Stat()
+	fileInfo, err := experiencePipe.Stat()
 	if err != nil {
 		log.Panicf("Cannot read exp file information")
 	}
@@ -91,26 +89,26 @@ func SaveExperience(experienceChan chan Example) {
 		}
 		if len(experienceBytes) == 0 { continue }
 
-		// write the collected experience bytes to a fresh file with a random filename
-		nWritten, err := expFile.Write(experienceBytes)
+		// write the collected experience bytes to the pipe for the trainer to receive
+		nWritten, err := experiencePipe.Write(experienceBytes)
 		if err != nil {
-			log.Panicf("Could not write to experience file %v", expFile)
+			log.Panicf("Could not write to experience pipe %v", experiencePipe)
 		}
 		if nWritten != len(experienceBytes) {
-			log.Panicf("Only wrote %d out of %d bytes to experience file %v (which may leave the experience file inconsistent)",
-				nWritten, len(experienceBytes), expFile)
+			log.Panicf("Only wrote %d out of %d bytes to experience pipe %v",
+				nWritten, len(experienceBytes), experiencePipe)
 		}
-		expFile.Close()
 
 		newModelPath := config.String["model_path"]
 		if oldModelPath == newModelPath {
-			log.Warningf("Wrote experience to file %s using model %s",
-				expFile.Name(), oldModelPath)
+			log.Warningf("Wrote experience to pipe %s using model %s",
+				experiencePipe.Name(), oldModelPath)
 		} else {
-			log.Warningf("Wrote experience to file %s using models between %s and %s",
-				expFile.Name(), oldModelPath, newModelPath)
+			log.Warningf("Wrote experience to pipe %s using models between %s and %s",
+				experiencePipe.Name(), oldModelPath, newModelPath)
 		}
 	}
+	experiencePipe.Close()
 }
 
 func SelfPlay(
@@ -174,13 +172,14 @@ func main() {
 	logging.SetBackend(formattedBackend)
 	logging.SetLevel(logging.DEBUG, "actor")
 	logging.SetLevel(logging.DEBUG, "predictor")
-	logging.SetLevel(logging.ERROR, "treesearch")
+	logging.SetLevel(logging.INFO, "treesearch")
 	logging.SetLevel(logging.ERROR, "record")
+	logging.SetLevel(logging.ERROR, "gogame")
 
 	predictor.StartService(config.String["model_path"])
 
 	experienceChan := make(chan Example, config.Int["max_game_length"])
-	go SaveExperience(experienceChan)
+	go SendExperience(experienceChan)
 
 	recordsChan := make(chan *record.Info, 1)
 	go record.Save(recordsChan)
@@ -195,5 +194,5 @@ func main() {
 
 	close(experienceChan)
 	close(recordsChan)
-	time.Sleep(1 * time.Second) // wait for SaveExperience() to save some more examples
+	time.Sleep(1 * time.Second) // wait for SendExperience() to save some more examples
 }
