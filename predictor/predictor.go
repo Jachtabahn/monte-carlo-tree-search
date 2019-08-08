@@ -9,7 +9,7 @@ import (
 
 var (
     RequestsChannel = make(chan Request)
-    serviceStop = make(chan int)
+    stopService = make(chan int)
     serviceDown = make(chan int)
     log = logging.MustGetLogger("predictor")
 )
@@ -25,7 +25,7 @@ type Response struct {
 }
 
 func StopService() {
-    serviceStop<- 1
+    stopService<- 1
     <-serviceDown
 }
 
@@ -58,12 +58,12 @@ func handlePredictionRequests(model *tf.SavedModel) {
                 computePredictions(requests[:len(requests)-1], model)
                 requests = requests[:1]
             }
-        case <-serviceStop:
+        case <-stopService:
             if len(requests) > 1 {
                 computePredictions(requests[:len(requests)-1], model)
                 requests = requests[:1]
             }
-            log.Infof("Service shutting down")
+            log.Warningf("Service shutting down")
             serviceDown<- 1
             return
         }
