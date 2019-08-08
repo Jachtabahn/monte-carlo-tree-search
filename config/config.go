@@ -6,10 +6,10 @@ var (
 
 	Int = map[string]int{
 		"boardsize": 5,
-		"max_game_length": 50,
+		"max_game_length": 20,
 		"exploration_length": 3,
 		"predict_batch_size": 2,
-		"num_examples_per_file": 200,
+		"num_examples_per_file": 41,
 		"nsims_per_goroutine": 600,
 		"random_seed": 3,
 		"num_eval_games": 1,
@@ -18,11 +18,12 @@ var (
 	String = map[string]string{
 		"exp_prefix": "exp",
 		"record_prefix": "sgf",
-		"model_path": "/home/tischler/Software/tischler/main/out/models/uibam-10"}
+		"model_path": "/home/tischler/Software/tischler/main/out/mod/uibam-tf"}
 )
 
 const (
     PolicyScoreFactor = float32(1.0)
     BLACK = 1
     WHITE = 2
+    ModelTag = "gogame"
 )
