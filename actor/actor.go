@@ -18,33 +18,35 @@ var (
 )
 
 func handleCommands() {
-	scanner := bufio.NewScanner(os.Stdin)
-	log.Debugf("Scanner begins scanning stdin")
-	for scanner.Scan() {
-		commandBytes := scanner.Bytes()
-		log.Debugf("Received command string: %s", commandBytes)
+	for {
+		scanner := bufio.NewScanner(os.Stdin)
+		log.Debugf("Scanner begins scanning stdin")
+		for scanner.Scan() {
+			commandBytes := scanner.Bytes()
+			log.Debugf("Received command string: %s", commandBytes)
 
-		var commandJson interface{}
-		err := json.Unmarshal(commandBytes, &commandJson)
-		if err != nil {
-			log.Errorf("Ignoring following command that is not valid JSON: %s", commandBytes)
-			continue
-		}
-		log.Debugf("Parsed command json: %s", commandJson)
+			var commandJson interface{}
+			err := json.Unmarshal(commandBytes, &commandJson)
+			if err != nil {
+				log.Errorf("Ignoring following command that is not valid JSON: %s", commandBytes)
+				continue
+			}
+			log.Debugf("Parsed command json: %s", commandJson)
 
-		commandMap := commandJson.(map[string]interface{})
-		commandName := commandMap["command"]
-		switch commandName {
-		case "LoadModel":
-			modelPath := commandMap["model_path"].(string)
-			log.Debugf("Received command to load new model %s", modelPath)
-			predictor.StopService()
-			predictor.StartService(modelPath)
-		default:
-			log.Debugf("Received unknown command: %s", commandName)
+			commandMap := commandJson.(map[string]interface{})
+			commandName := commandMap["command"]
+			switch commandName {
+			case "LoadModel":
+				modelPath := commandMap["model_path"].(string)
+				log.Debugf("Received command to load new model %s", modelPath)
+				predictor.StopService()
+				predictor.StartService(modelPath)
+			default:
+				log.Debugf("Received unknown command: %s", commandName)
+			}
 		}
+		log.Debugf("Scanner reached EOF")
 	}
-	log.Debugf("Scanner reached end of file")
 }
 
 type Example struct {
