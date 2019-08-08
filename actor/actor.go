@@ -56,12 +56,26 @@ type Example struct {
 }
 
 func SaveExperience(experienceChan chan Example) {
+	expPrefix := config.String["exp_prefix"]
+	expFile, err := os.Create(expPrefix)
+	if err != nil {
+		log.Panicf("Could not open the pipe to write the examples")
+	}
+	fileInfo, err := expFile.Stat()
+	if err != nil {
+		log.Panicf("Cannot read exp file information")
+	}
+	if fileInfo.Mode().IsRegular() {
+		log.Panicf("Opened exp file is regular, that is, not a named pipe")
+	}
+
 	experienceBytes := make([]byte, 0)
 	isOpen := true
-	expPrefix := config.String["exp_prefix"]
 	for isOpen {
+		// num_examples_per_file > 2*max_game_length
+		oldModelPath := config.String["model_path"]
 		experienceBytes = experienceBytes[:0]
-		// collect a configured number of examples from SelfPlay through the experience channel
+		// collect examples from SelfPlay through the experience channel
 		for i := 0; i < config.Int["num_examples_per_file"]; i++ {
 			example, open := <-experienceChan
 			if !open {
@@ -78,21 +92,24 @@ func SaveExperience(experienceChan chan Example) {
 		if len(experienceBytes) == 0 { continue }
 
 		// write the collected experience bytes to a fresh file with a random filename
-		exFile, err := os.Create(fmt.Sprintf(
-			"%s%c%s.ex", expPrefix,
-			os.PathSeparator, uuid.Must(uuid.NewV4())))
+		nWritten, err := expFile.Write(experienceBytes)
 		if err != nil {
-			log.Panicf("Could not create a file to write the examples:\n%v", experienceBytes)
-		}
-		nWritten, err := exFile.Write(experienceBytes)
-		if err != nil {
-			log.Panicf("Could not write to experience file %v", exFile)
+			log.Panicf("Could not write to experience file %v", expFile)
 		}
 		if nWritten != len(experienceBytes) {
 			log.Panicf("Only wrote %d out of %d bytes to experience file %v (which may leave the experience file inconsistent)",
-				nWritten, len(experienceBytes), exFile)
+				nWritten, len(experienceBytes), expFile)
 		}
-		exFile.Close()
+		expFile.Close()
+
+		newModelPath := config.String["model_path"]
+		if oldModelPath == newModelPath {
+			log.Warningf("Wrote experience to file %s using model %s",
+				expFile.Name(), oldModelPath)
+		} else {
+			log.Warningf("Wrote experience to file %s using models between %s and %s",
+				expFile.Name(), oldModelPath, newModelPath)
+		}
 	}
 }
 
