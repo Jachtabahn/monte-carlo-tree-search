@@ -21,6 +21,7 @@ var (
 
 func handleCommands() {
 	scanner := bufio.NewScanner(os.Stdin)
+	log.Debugf("Scanner begins scanning stdin")
 	for scanner.Scan() {
 		commandBytes := scanner.Bytes()
 		log.Debugf("Received command string: %s", commandBytes)
@@ -34,21 +35,18 @@ func handleCommands() {
 		log.Debugf("Parsed command json: %s", commandJson)
 
 		commandMap := commandJson.(map[string]interface{})
-		commandName := commandMap["name"]
+		commandName := commandMap["command"]
 		switch commandName {
 		case "LoadModel":
-			modelPath := commandMap["model_path"]
-			config.String["model_path"] = modelPath.(string)
-			log.Debugf("Loading new model %s", modelPath)
+			modelPath := commandMap["model_path"].(string)
+			log.Debugf("Received command to load new model %s", modelPath)
 			predictor.StopService()
-			predictor.StartService()
-		case "ChangeFolder":
-			folder := commandMap["folder"]
-			log.Debugf("Changing folder to %s", folder)
+			predictor.StartService(modelPath)
 		default:
-			log.Debugf("Unknown command: %s", commandName)
+			log.Debugf("Received unknown command: %s", commandName)
 		}
 	}
+	log.Debugf("Scanner reached end of file")
 }
 
 type Example struct {
@@ -115,8 +113,10 @@ func SelfPlay(
 		WhiteName: searcher.Name()}
 	for !searcher.Finished() && gameLength < maxGameLength {
 		searcher.Search()
-		var actionIdx int
-		var policy []float32
+		var (
+			actionIdx int
+			policy []float32
+		)
 		if gameLength < explorationLength {
 			actionIdx, policy = searcher.Explore()
 		} else {
@@ -131,9 +131,12 @@ func SelfPlay(
 		searcher.Step(actionIdx)
 	}
 	outcome := searcher.Outcome()
+
+	// queue game record for writing
 	record.Outcome = outcome
 	recordsChan<- record
 
+	// queue experience for writing
 	for t := len(examples)-1; t >= 0; t-- {
 		outcome *= -1.0
 		examples[t].Outcome = outcome
@@ -153,11 +156,11 @@ func main() {
 	formattedBackend := logging.NewBackendFormatter(logging.NewLogBackend(os.Stderr, "", 0), logFormat)
 	logging.SetBackend(formattedBackend)
 	logging.SetLevel(logging.DEBUG, "actor")
-	logging.SetLevel(logging.ERROR, "predictor")
+	logging.SetLevel(logging.DEBUG, "predictor")
 	logging.SetLevel(logging.ERROR, "treesearch")
 	logging.SetLevel(logging.ERROR, "record")
 
-	predictor.StartService()
+	predictor.StartService(config.String["model_path"])
 
 	experienceChan := make(chan Example, config.Int["max_game_length"])
 	go SaveExperience(experienceChan)
@@ -166,6 +169,7 @@ func main() {
 	go record.Save(recordsChan)
 
 	go handleCommands()
+
 	searcher := treesearch.New(predictor.RequestsChannel)
 	for i := 0; ; i++ {
 		SelfPlay(searcher, experienceChan, recordsChan)
