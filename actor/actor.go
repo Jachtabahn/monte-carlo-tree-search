@@ -19,7 +19,11 @@ var (
 
 func handleCommands() {
 	for {
-		scanner := bufio.NewScanner(os.Stdin)
+		commandsFile, err := os.Open(config.String["commands_path"])
+		if err != nil {
+			log.Panicf("Could not open commands pipe")
+		}
+		scanner := bufio.NewScanner(commandsFile)
 		log.Debugf("Scanner begins scanning stdin")
 		for scanner.Scan() {
 			commandBytes := scanner.Bytes()

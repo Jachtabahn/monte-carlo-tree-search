@@ -18,6 +18,7 @@ var (
 	String = map[string]string{
 		"exp_prefix": "exp",
 		"record_prefix": "sgf",
+		"commands_path": "commands",
 		"model_path": "/home/tischler/Software/tischler/main/out/mod/uibam-tf"}
 )
 
