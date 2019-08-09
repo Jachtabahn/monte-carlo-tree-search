@@ -115,6 +115,7 @@ func SendExperience(experienceChan chan Example) {
 		}
 	}
 	experiencePipe.Close()
+	log.Debugf("Closed experience pipe")
 }
 
 func SelfPlay(
